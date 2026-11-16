@@ -20,7 +20,7 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
 (async function(){
   var P = "ABcbz7f8"+"VHjdGHf0"+"/egWXUp7"+"UQqmQ1Oj"+"Up5JD/Yt"+"iBY=";
   var IV = "LdClD1XUMJyGAett";
-  var N = 10;
+  var N = 4;
   function b64(s){var t=atob(s),u=new Uint8Array(t.length);for(var i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u;}
   function boot(msg){
     var el=document.getElementById('boot');
@@ -29,11 +29,11 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
   }
   try {
     async function getChunk(i){
-      var url='chunks/p'+String(i).padStart(2,'0')+'.bin';
+      var url='chunks/q'+String(i).padStart(2,'0')+'.bin';
       for(var t=0;t<4;t++){
         try {
           var r = await Promise.race([
-            fetch(url,{cache:'no-store'}),
+            fetch(url),
             new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); }, 8000); })
           ]);
           if (r.ok) return await r.text();
