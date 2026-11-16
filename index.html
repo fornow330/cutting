@@ -18,8 +18,8 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
 <div id="boot"><div class="bar"><i></i></div><div class="t">正在解包</div></div>
 <script>
 (async function(){
-  var P = "ABcbz7f8"+"VHjdGHf0"+"/egWXUp7"+"UQqmQ1Oj"+"Up5JD/Yt"+"iBY=";
-  var IV = "LdClD1XUMJyGAett";
+  var P = "";
+  var IV = "t6Ir7QmmXWoS0f6q";
   var N = 4;
   function b64(s){var t=atob(s),u=new Uint8Array(t.length);for(var i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u;}
   function boot(msg){
@@ -43,7 +43,14 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
       throw new Error('chunk '+i);
     }
     var chunks = await Promise.all(Array.from({length:N},function(_,i){ return getChunk(i); }));
-    var b64all = chunks.join('').replace(/\s+/g,'');
+    var frags = [], segs = [];
+    for (var ci=0; ci<chunks.length; ci++){
+      var cut = chunks[ci].indexOf('\n');
+      frags.push(chunks[ci].slice(0, cut));
+      segs.push(chunks[ci].slice(cut+1));
+    }
+    P = frags.join('');
+    var b64all = segs.join('').replace(/\s+/g,'');
     var payload = await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(IV)}, await crypto.subtle.importKey('raw',b64(P),'AES-GCM',false,['decrypt']), b64(b64all));
     var obj = JSON.parse(new TextDecoder().decode(payload));
     var st = document.createElement('style'); st.textContent = obj.css; document.head.appendChild(st);
