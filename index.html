@@ -19,21 +19,61 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
 <script>
 (async function(){
   var P = "";
-  var IV = "bZwXmU+UH8tTU6+U";
+  var IV = "UDOKsxTOK467TGRA";
   var N = 4;
+  var CK = "gzpk_7800eeca66";
   function b64(s){var t=atob(s),u=new Uint8Array(t.length);for(var i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u;}
+  function toB64(u){var s='';for(var i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s);}
   function boot(msg){
     var el=document.getElementById('boot');
     if(!el) return;
     el.innerHTML='<div class="t">'+msg+'</div>';
   }
+  async function gunzip(u8){
+    var ds = new DecompressionStream('gzip');
+    var out = await new Response(new Blob([u8]).stream().pipeThrough(ds)).arrayBuffer();
+    return new Uint8Array(out);
+  }
+  async function decryptToObj(gz){
+    var pt = await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(IV)}, await crypto.subtle.importKey('raw',b64(P),'AES-GCM',false,['decrypt']), gz);
+    return JSON.parse(new TextDecoder().decode(await gunzip(pt)));
+  }
+  function mount(obj){
+    var st = document.createElement('style'); st.textContent = obj.css; document.head.appendChild(st);
+    document.body.innerHTML = obj.body;
+    var sc = document.createElement('script'); sc.textContent = obj.js; document.body.appendChild(sc);
+  }
+  function readCache(){
+    try {
+      var v = localStorage.getItem(CK);
+      if (!v) return null;
+      var o = JSON.parse(v);
+      return (o && o.k && o.d) ? o : null;
+    } catch(e){ return null; }
+  }
+  function writeCache(gz){
+    try {
+      var s = JSON.stringify({k:P, d:toB64(gz)});
+      if (s.length < 900000) localStorage.setItem(CK, s);
+    } catch(e){}
+  }
+  function chunksReady(obj){ return obj && obj.js && obj.css && obj.body; }
   try {
+    /* 二次打开：优先本地缓存 */
+    var hit = readCache();
+    if (hit){
+      try {
+        P = hit.k;
+        var cachedObj = await decryptToObj(b64(hit.d));
+        if (chunksReady(cachedObj)){ mount(cachedObj); return; }
+      } catch(e){ P = ''; }
+    }
     async function getChunk(i){
       var url='chunks/q'+String(i).padStart(2,'0')+'.bin';
       for(var t=0;t<4;t++){
         try {
           var r = await Promise.race([
-            fetch(url),
+            fetch(url, {cache:'force-cache'}),
             new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); }, 8000); })
           ]);
           if (r.ok) return await r.text();
@@ -42,20 +82,24 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
       }
       throw new Error('chunk '+i);
     }
-    var chunks = await Promise.all(Array.from({length:N},function(_,i){ return getChunk(i); }));
-    var frags = [], segs = [];
-    for (var ci=0; ci<chunks.length; ci++){
+    /* 取片顺序：从尾片倒序请求，再按原序归位 */
+    var idxs = [];
+    for (var i=N-1; i>=0; i--) idxs.push(i);
+    var chunks = new Array(N);
+    await Promise.all(idxs.map(async function(i){ chunks[i] = await getChunk(i); }));
+    var frags = [];
+    for (var ci=0; ci<N; ci++){
       var cut = chunks[ci].indexOf('\n');
       frags.push(chunks[ci].slice(0, cut));
-      segs.push(chunks[ci].slice(cut+1));
     }
     P = frags.join('');
+    var segs = [];
+    for (var pi=0; pi<N; pi++) segs.push(chunks[pi].slice(chunks[pi].indexOf('\n')+1));
     var b64all = segs.join('').replace(/\s+/g,'');
-    var payload = await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(IV)}, await crypto.subtle.importKey('raw',b64(P),'AES-GCM',false,['decrypt']), b64(b64all));
-    var obj = JSON.parse(new TextDecoder().decode(payload));
-    var st = document.createElement('style'); st.textContent = obj.css; document.head.appendChild(st);
-    document.body.innerHTML = obj.body;
-    var sc = document.createElement('script'); sc.textContent = obj.js; document.body.appendChild(sc);
+    var gz = b64(b64all);
+    var obj = await decryptToObj(gz);
+    writeCache(gz);
+    if (chunksReady(obj)) mount(obj); else boot('加载失败，请刷新重试');
   } catch(e) {
     boot('加载失败，请刷新重试');
     console.error(e);
