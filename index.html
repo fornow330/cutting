@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>怪潮幸存者</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a1013">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d1518'/%3E%3Cpath d='M16 6l8 11-8 9-8-9z' fill='%235ee6c8'/%3E%3C/svg%3E">
 <style>
 html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
@@ -18,11 +22,14 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
 <div id="boot"><div class="bar"><i></i></div><div class="t">正在解包</div></div>
 <script>
 (async function(){
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  }
   var P = "";
-  var IV = "jgTbC0Q2flV/VJ+f";
+  var IV = "Xxb0XEHJY4upLrA0";
   var N = 4;
-  var CK = "gzpk_2c93097859";
-  var VER = "2c93097859";
+  var CK = "gzpk_26df489330";
+  var VER = "26df489330";
   function b64(s){var t=atob(s),u=new Uint8Array(t.length);for(var i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u;}
   function toB64(u){var s='';for(var i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s);}
   function boot(msg){
@@ -68,35 +75,56 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
         if (ready(cachedObj)){ mount(cachedObj); return; }
       } catch(e){ P = ''; }
     }
-    async function getChunk(i){
-      var base='chunks/q'+String(i).padStart(2,'0')+'.bin';
-      for(var t=0;t<4;t++){
-        var url = base + '?v=' + VER + (t>=2 ? '&r=' + Date.now() : '');
-        try {
-          var r = await Promise.race([
-            fetch(url, {cache: t>=2 ? 'reload' : 'force-cache'}),
-            new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); }, 8000); })
-          ]);
-          if (r.ok) return await r.text();
-        } catch(e){}
-        await new Promise(function(res){ setTimeout(res, 600*(t+1)); });
-      }
-      throw new Error('chunk '+i);
+    var JSD = 'https://cdn.jsdelivr.net/gh/fornow330/cutting@main/chunks/';
+    function fetchOne(url, timeout, cacheMode){
+      return Promise.race([
+        fetch(url, {cache:cacheMode}),
+        new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); }, timeout); })
+      ]);
     }
-    var idxs = [];
-    for (var i=N-1; i>=0; i--) idxs.push(i);
-    var chunks = new Array(N);
-    await Promise.all(idxs.map(async function(i){ chunks[i] = await getChunk(i); }));
+    async function loadSet(fromJsdelivr, timeout, cacheMode, bust){
+      var list = [];
+      for (var i=N-1; i>=0; i--){
+        var name='q'+String(i).padStart(2,'0')+'.bin';
+        var url = fromJsdelivr ? (JSD+name) : ('chunks/'+name+'?v='+VER+(bust?('&r='+Date.now()):''));
+        list.push({i:i, url:url});
+      }
+      var out = new Array(N);
+      await Promise.all(list.map(async function(it){
+        var text = null;
+        try { var r = await fetchOne(it.url, timeout, cacheMode); if (r.ok) text = await r.text(); } catch(e){}
+        if (!text) throw new Error('chunk '+it.i);
+        out[it.i] = text;
+      }));
+      return out;
+    }
+
+    var chunks = null;
+    try { chunks = await loadSet(false, 6000, 'force-cache', false); }
+    catch(e0){
+      try { chunks = await loadSet(true, 8000, 'reload', false); }
+      catch(e1){ chunks = await loadSet(false, 9000, 'reload', true); }
+    }
     var frags = [], segs = [];
     for (var ci=0; ci<N; ci++){
       var cut = chunks[ci].indexOf('\n');
       frags.push(chunks[ci].slice(0, cut));
       segs.push(chunks[ci].slice(cut+1));
     }
-    P = frags.join('');
-    var b64all = segs.join('').replace(/\s+/g,'');
-    var gz = b64(b64all);
-    var obj = await decryptToObj(gz);
+    async function assemble(cs){
+      var fr=[], sg=[];
+      for (var ci=0; ci<N; ci++){ var cut=cs[ci].indexOf('\n'); fr.push(cs[ci].slice(0,cut)); sg.push(cs[ci].slice(cut+1)); }
+      P = fr.join('');
+      return b64(sg.join('').replace(/\s+/g,''));
+    }
+    var gz = await assemble(chunks);
+    var obj = null;
+    try { obj = await decryptToObj(gz); }
+    catch(eDec){
+      chunks = await loadSet(false, 9000, 'reload', true);
+      gz = await assemble(chunks);
+      obj = await decryptToObj(gz);
+    }
     writeCache(gz);
     if (ready(obj)) mount(obj); else boot('加载失败，请刷新重试');
   } catch(e) {
