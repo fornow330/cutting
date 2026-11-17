@@ -19,9 +19,9 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
 <script>
 (async function(){
   var P = "";
-  var IV = "UDOKsxTOK467TGRA";
+  var IV = "GX4leP2c/Ro9wcde";
   var N = 4;
-  var CK = "gzpk_7800eeca66";
+  var CK = "gzpk_79921affce";
   function b64(s){var t=atob(s),u=new Uint8Array(t.length);for(var i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u;}
   function toB64(u){var s='';for(var i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s);}
   function boot(msg){
@@ -57,15 +57,14 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
       if (s.length < 900000) localStorage.setItem(CK, s);
     } catch(e){}
   }
-  function chunksReady(obj){ return obj && obj.js && obj.css && obj.body; }
+  function ready(obj){ return obj && obj.js && obj.css && obj.body; }
   try {
-    /* 二次打开：优先本地缓存 */
     var hit = readCache();
     if (hit){
       try {
         P = hit.k;
         var cachedObj = await decryptToObj(b64(hit.d));
-        if (chunksReady(cachedObj)){ mount(cachedObj); return; }
+        if (ready(cachedObj)){ mount(cachedObj); return; }
       } catch(e){ P = ''; }
     }
     async function getChunk(i){
@@ -82,24 +81,22 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
       }
       throw new Error('chunk '+i);
     }
-    /* 取片顺序：从尾片倒序请求，再按原序归位 */
     var idxs = [];
     for (var i=N-1; i>=0; i--) idxs.push(i);
     var chunks = new Array(N);
     await Promise.all(idxs.map(async function(i){ chunks[i] = await getChunk(i); }));
-    var frags = [];
+    var frags = [], segs = [];
     for (var ci=0; ci<N; ci++){
       var cut = chunks[ci].indexOf('\n');
       frags.push(chunks[ci].slice(0, cut));
+      segs.push(chunks[ci].slice(cut+1));
     }
     P = frags.join('');
-    var segs = [];
-    for (var pi=0; pi<N; pi++) segs.push(chunks[pi].slice(chunks[pi].indexOf('\n')+1));
     var b64all = segs.join('').replace(/\s+/g,'');
     var gz = b64(b64all);
     var obj = await decryptToObj(gz);
     writeCache(gz);
-    if (chunksReady(obj)) mount(obj); else boot('加载失败，请刷新重试');
+    if (ready(obj)) mount(obj); else boot('加载失败，请刷新重试');
   } catch(e) {
     boot('加载失败，请刷新重试');
     console.error(e);
