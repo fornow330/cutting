@@ -19,9 +19,10 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
 <script>
 (async function(){
   var P = "";
-  var IV = "GX4leP2c/Ro9wcde";
+  var IV = "jgTbC0Q2flV/VJ+f";
   var N = 4;
-  var CK = "gzpk_79921affce";
+  var CK = "gzpk_2c93097859";
+  var VER = "2c93097859";
   function b64(s){var t=atob(s),u=new Uint8Array(t.length);for(var i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u;}
   function toB64(u){var s='';for(var i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s);}
   function boot(msg){
@@ -68,16 +69,17 @@ html,body{margin:0;height:100%;background:#0a1013;color:#7fd8c8;font:14px/1.6 -a
       } catch(e){ P = ''; }
     }
     async function getChunk(i){
-      var url='chunks/q'+String(i).padStart(2,'0')+'.bin';
+      var base='chunks/q'+String(i).padStart(2,'0')+'.bin';
       for(var t=0;t<4;t++){
+        var url = base + '?v=' + VER + (t>=2 ? '&r=' + Date.now() : '');
         try {
           var r = await Promise.race([
-            fetch(url, {cache:'force-cache'}),
+            fetch(url, {cache: t>=2 ? 'reload' : 'force-cache'}),
             new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); }, 8000); })
           ]);
           if (r.ok) return await r.text();
         } catch(e){}
-        await new Promise(function(res){ setTimeout(res, 700*(t+1)); });
+        await new Promise(function(res){ setTimeout(res, 600*(t+1)); });
       }
       throw new Error('chunk '+i);
     }
