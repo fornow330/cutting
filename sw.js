@@ -1,4 +1,4 @@
-const CACHE = 'gz-e3c5416cc3';
+const CACHE = 'gz-aaeec595b5';
 const CORE = ['./','./index.html','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install', function(e){
   e.waitUntil(caches.open(CACHE).then(function(c){ return c.addAll(CORE); }).catch(function(){}).then(function(){ return self.skipWaiting(); }));
