@@ -4,13 +4,25 @@
 
 /* ================= 画布 ================= */
 var cvs = document.getElementById('game');
-var ctx = cvs.getContext('2d', { alpha: false });   /* 每帧都被背景层铺满，关掉 alpha 让合成层少一遍混合 */
+/* alpha:false 是可选优化：老浏览器会忽略这个选项（不会失败），但被插件禁用 Canvas 时会直接返回 null */
+var ctx = null;
+try { ctx = cvs.getContext('2d', { alpha: false }) || cvs.getContext('2d'); } catch(e){ ctx = null; }
+if (!ctx){
+  try{
+    document.body.innerHTML = '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;'
+      + 'padding:24px;text-align:center;font:14px/1.7 system-ui,sans-serif;color:#dfe9e6;background:#071012">'
+      + '当前浏览器无法创建 Canvas 2D 画布，游戏不能运行。<br>请升级浏览器，或在设置里关闭「禁止画布/指纹追踪」类选项后刷新。</div>';
+  }catch(e){}
+  return;
+}
 var VW = 0, VH = 0, DPR = 1, VZ = 1, VWW = 0, VHH = 0, SAFE_T = 0, SAFE_B = 0;
 var AUTOQ = {on:false, lv:0, slow:0, fast:0};
 var vig = null, bgLayer = null;
 
 var _lastVW = -1, _lastVH = -1, _lastDPR = -1, _lastUi = '';
+var _lastRawDPR = -1;
 function resize(){
+  _lastRawDPR = window.devicePixelRatio || 1;
   var dprCap = (typeof S !== 'undefined' && S && S.set && S.set.quality === 'low') ? 1.5 : 2;
   if (AUTOQ.lv === 1) dprCap = Math.min(dprCap, 1.3);
   if (AUTOQ.lv === 2) dprCap = Math.min(dprCap, 1.0);
@@ -618,6 +630,7 @@ function saveNow(immediate){
   saveNowReal();
 }
 
+var _saveWarned = false;
 function saveNowReal(){
   S.v = 2;
   var txt = '';
@@ -630,7 +643,13 @@ function saveNowReal(){
     if (S.runs && S.runs.length > 20) S.runs = S.runs.slice(0, 20);
     txt = JSON.stringify(S);
     localStorage.setItem(SAVE_KEY, txt);
+    return;
   }catch(e){}
+  /* 三次都写不进去：多半是无痕/隐私模式或站点存储被禁用。别静默失败，让玩家知道进度不会保存 */
+  if (!_saveWarned){
+    _saveWarned = true;
+    try{ toast('本地存储不可用：本局进度不会保存，刷新后无法继续'); }catch(e){}
+  }
 }
 
 /* ================= 音效 ================= */
@@ -1457,7 +1476,7 @@ function saveCheckpoint(persist, force){
          shopBuys → 单局累计涨价归零，买到一半刷新页面就回到基础价；
          comboCores → 这局攒的连杀星核直接丢，结算少给；
          comboBest → 结算页"最高连杀"归零 */
-      saveUsed: !!G.saveUsed, shopBuys: G.shopBuys || 0,
+      saveUsed: !!G.saveUsed, shopBuys: G.shopBuys || 0, shopRolls: G.shopRolls || 0,
       comboCores: G.comboCores || 0, comboBest: G.comboBest || 0, waveHeal: G.waveHeal || 0,
       diff: (G.diff && G.diff.key) || S.diff, char: S.char, hist: G.hist || [],
       player: JSON.parse(JSON.stringify(G.player)),
@@ -1493,10 +1512,10 @@ function resumeRun(){
   G.swordDmg = !!cp.swordDmg; G.swordCool = [0,0,0]; G.swordBlock = cp.swordBlock || 0;
   G.saveUsed = !!cp.saveUsed;
   G.shopBuys = Math.max(0, Math.min(60, typeof cp.shopBuys === 'number' ? cp.shopBuys : 0));
+  /* 刷新次数也存：不存的话在商店里刷新页面，本轮刷新价就回到最低档 */
+  G.shopRolls = Math.max(0, Math.min(40, typeof cp.shopRolls === 'number' ? cp.shopRolls : 0));
   G.comboCores = Math.max(0, typeof cp.comboCores === 'number' ? cp.comboCores : 0);
   G.comboBest = Math.max(0, typeof cp.comboBest === 'number' ? cp.comboBest : 0);
-  /* 本波治疗额度也存：不存的话读档后额度归零，等于白送一次满额回血 */
-  G.waveHeal = Math.max(0, typeof cp.waveHeal === 'number' ? cp.waveHeal : 0);
   G.hist = cp.hist || [];
   G.enemies = []; G.ebullets = []; G.bullets = []; G.gems = []; G.pickups = [];
   if (cp.player){
@@ -1566,6 +1585,9 @@ function resumeRun(){
     var rhp = Math.min(G.player.hpMax, Math.max(1, cp.player.hp));
     if (G.player.hp > rhp) G.player.hp = rhp;
   }
+  /* 本波治疗额度必须在 waveStart 之后恢复：waveStart 每波都会把额度清零，
+     早于它赋值等于白写（读档后又能蹭一次满额回血） */
+  G.waveHeal = Math.max(0, typeof cp.waveHeal === 'number' ? cp.waveHeal : 0);
   /* waveStart 在 resuming 里跳过了存档，这里把"钉回存档值后的状态"补存一次，
      否则内存与存档不一致，下次继续又会从旧血值算起 */
   try { saveCheckpoint(); } catch(e){}
@@ -5452,6 +5474,11 @@ function onKeyDown(ev){
       if (k === '3') chooseUpgrade(2);
       if (k === '4' || k === 'r') rerollPicks();
     }
+    /* 结算页也给键盘：R/回车再来一局，Esc 回主菜单。手机上没键盘，桌面上省一次挪鼠标 */
+    if (G.state === 'over'){
+      if (k === 'r' || k === 'enter'){ ev.preventDefault(); restartRun(); }
+      if (k === 'escape'){ ev.preventDefault(); goHome(); }
+    }
     if (G.state === 'shop'){
       if (k === '1') buyShopItem(0);
       if (k === '2') buyShopItem(1);
@@ -5485,12 +5512,31 @@ window.addEventListener('compositionstart', function(){
   }
 }, true);
 
-/* 部分浏览器（如 QQ 浏览器多标签）焦点停在地址栏，点击画面后把焦点拉回画布 */
-cvs.addEventListener('pointerdown', function(){
-  try{ cvs.focus(); }catch(e){}
-}, {passive:true});
+/* 触摸兼容层：iOS 12 / 老 Android WebView 没有 PointerEvent，
+   直接绑 pointerdown 会导致摇杆完全失灵（点画面没有任何反应）。
+   这里统一成 pBind()：有 PointerEvent 用指针事件，没有就退回 touch 并补齐 pointerId/clientX 字段 */
+var HAS_PE = !!window.PointerEvent;
+var _PE_MAP = { pointerdown:'touchstart', pointermove:'touchmove', pointerup:'touchend', pointercancel:'touchcancel' };
+function pBind(el, type, fn){
+  if (HAS_PE){ el.addEventListener(type, fn, {passive: type === 'pointermove'}); return; }
+  var tt = _PE_MAP[type];
+  if (!tt) return;
+  /* touchstart/touchend 必须非 passive 才能 preventDefault，否则部分浏览器会连带触发滚动/合成点击 */
+  el.addEventListener(tt, function(e){
+    var t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
+    if (!t) return;
+    fn({ pointerId: (t.identifier === undefined ? 0 : t.identifier) + 1,
+         clientX: t.clientX, clientY: t.clientY, target: el });
+    if (type !== 'pointermove' && e.cancelable){ try{ e.preventDefault(); }catch(_){} }
+  }, {passive: type === 'pointermove'});
+}
 
-cvs.addEventListener('pointerdown', function(ev){
+/* 部分浏览器（如 QQ 浏览器多标签）焦点停在地址栏，点击画面后把焦点拉回画布 */
+pBind(cvs, 'pointerdown', function(){
+  try{ cvs.focus(); }catch(e){}
+});
+
+pBind(cvs, 'pointerdown', function(ev){
   if (G.state !== 'playing') return;
   if (G.bossWarn){ G.bossWarn.t = 0.01; return; }
   /* 已经有一根手指在推摇杆了：第二根手指（另一只手点暂停/点画面）不能把摇杆抢走，
@@ -5501,7 +5547,7 @@ cvs.addEventListener('pointerdown', function(ev){
   JOY.dx = 0; JOY.dy = 0; JOY.tx = 0; JOY.ty = 0;
   try{ cvs.setPointerCapture(ev.pointerId); }catch(e){}
 });
-cvs.addEventListener('pointermove', function(ev){
+pBind(cvs, 'pointermove', function(ev){
   if (!JOY.active || ev.pointerId !== JOY.id) return;
   var dx = ev.clientX - JOY.bx, dy = ev.clientY - JOY.by;
   var m = Math.sqrt(dx*dx + dy*dy);
@@ -5521,8 +5567,8 @@ function endJoy(ev){
   if (ev.pointerId !== JOY.id) return;
   JOY.active = false; JOY.dx = 0; JOY.dy = 0; JOY.tx = 0; JOY.ty = 0;
 }
-cvs.addEventListener('pointerup', endJoy);
-cvs.addEventListener('pointercancel', endJoy);
+pBind(cvs, 'pointerup', endJoy);
+pBind(cvs, 'pointercancel', endJoy);
 
 document.addEventListener('visibilitychange', function(){
   if (document.hidden && G){
@@ -5578,11 +5624,12 @@ bind('btnOverDetail', function(){
   if (b) b.textContent = show ? '收起详情' : '查看详情';
 });
 
-bind('btnRestart', function(){
+function restartRun(){
   var wasP = !!(G && G.practice);
   startRun(false);
   if (wasP){ G.practice = true; G.wave = 19; waveStart(); toast('练习模式：不计星核与战绩'); }
-});
+}
+bind('btnRestart', restartRun);
 bind('btnResume', togglePause);
 bind('btnHome', goHome);
 bind('btnRevive', reviveRun);
@@ -6012,18 +6059,26 @@ function frame(ts){
   }
 
   pollPad();
+  /* 外接屏、页面缩放、系统"更大字号"会改变 devicePixelRatio，但不会触发 resize 事件，
+     不查的话画面会一直是旧的像素密度（发虚或过锐） */
+  if ((++G._dprTick & 63) === 0){
+    var rdp = window.devicePixelRatio || 1;
+    if (rdp !== _lastRawDPR){ resize(); }
+  }
   /* 阈值取 40ms：30fps 的机器本身就是 33ms，不该被判定为掉帧一路降到最低画质 */
   if (dt > 0.040){ AUTOQ.slow += dt; AUTOQ.fast = 0; } else { AUTOQ.fast += dt; AUTOQ.slow = 0; }
   if (AUTOQ.slow > 2.5){
     AUTOQ.slow = 0;
     if (AUTOQ.lv < 3){
-      AUTOQ.lv++; AUTOQ.on = AUTOQ.lv > 0; resize();
+      AUTOQ.lv++; AUTOQ.on = AUTOQ.lv > 0; AUTOQ.fast = 0; AUTOQ.cool = Date.now() + 90000; resize();
       G.qNoteUntil = Date.now() + 8000;
       toast(AUTOQ.lv === 1 ? '检测到掉帧 · 已自动降低渲染精度'
          : (AUTOQ.lv === 2 ? '仍偏卡 · 已切到最低画质' : '非常卡 · 已开到极低画质'));
     }
-  } else if (AUTOQ.fast > 8 && AUTOQ.lv > 0){
-    AUTOQ.fast = 0; AUTOQ.lv--; AUTOQ.on = AUTOQ.lv > 0; resize();
+  } else if (AUTOQ.fast > 25 && AUTOQ.lv > 0 && Date.now() > (AUTOQ.cool || 0)){
+    /* 恢复档位要比降档谨慎得多：稳定 25 秒才升一档，且降档后 90 秒内不许升。
+       否则刚降档画面变轻、立刻又快起来、升回去又卡，玩家会看到画质反复跳 */
+    AUTOQ.fast = 0; AUTOQ.cool = Date.now() + 90000; AUTOQ.lv--; AUTOQ.on = AUTOQ.lv > 0; resize();
   }
   var fpsNow = (G && G.fps) ? G.fps : 60;
   if (G && G.state === 'playing' && !G.daily){
