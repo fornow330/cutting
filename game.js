@@ -1484,7 +1484,7 @@ function saveCheckpoint(persist, force){
       evoDone: JSON.parse(JSON.stringify(G.evoDone || {})),
       school: JSON.parse(JSON.stringify(G.school || {})),
       schoolDone: JSON.parse(JSON.stringify(G.schoolDone || {})),
-      mods: (G.mods || []).map(function(m){ return {id:m.id, name:m.name, tip:m.tip, st:m.st}; })
+      mods: (G.mods || []).map(function(m){ return m ? {id:m.id, name:m.name, tip:m.tip, st:m.st} : null; }).filter(Boolean)
     };
     /* 每 6 秒的例行存档只更新内存快照；真正落盘放到换波/商店/暂停/退出，
        避免每 6 秒一次 localStorage 同步写卡掉一帧 */
@@ -1495,38 +1495,73 @@ function saveCheckpoint(persist, force){
 function resumeRun(){
   var cp = S.checkpoint;
   if (!cp) return;
+  /* ==== 存档消毒 ====
+     存档不只来自本机：设置里可以粘贴别人分享的文本导入，写入也可能被断电截断。
+     只要有一个字段是 "abc" / null / Infinity，直接进游戏就会把字符串拼进 time、把 NaN 传给
+     swords，几帧之内整局崩掉（下面每个字段都过一遍 cpNum：非有限数一律回落默认值）。
+     cpNum(v, 默认, 最小, 最大) —— 字符串能转成数字的也接受（"12" → 12）。 */
+  var cpNum = function(v, d, lo, hi){
+    var n = v;
+    if (typeof n === 'string' && n.trim() !== '') n = Number(n);
+    if (typeof n !== 'number' || !isFinite(n)) n = d;
+    if (lo !== undefined && n < lo) n = lo;
+    if (hi !== undefined && n > hi) n = hi;
+    return n;
+  };
+  var cpObj = function(v){ return (v && typeof v === 'object' && !Array.isArray(v)) ? v : null; };
   var prevChar = S.char, prevDiff = S.diff;
-  S.char = cp.char || S.char;
-  S.diff = cp.diff || S.diff;
+  S.char = (typeof cp.char === 'string' && S.chars && S.chars[cp.char]) ? cp.char : S.char;
+  S.diff = (typeof cp.diff === 'string' && DIFF[cp.diff]) ? cp.diff : S.diff;
   startRun(false);
   S.char = prevChar; S.diff = prevDiff;
-  G.wave = Math.max(0, cp.wave - 1);
-  G.time = cp.time || 0;
-  G.kills = cp.kills || 0;
-  G.coins = cp.coins || 0;
-  G.coresBonus = cp.coresBonus || 0;
-  G.bountyDone = cp.bountyDone || 0; G.expOver = cp.expOver || 0; G.bountyRef = null;
-  G.cycle = cp.cycle || 1;
-  G.swords = Math.max(0, Math.min(3, cp.swords || 0));
-  G.rerollExtra = Math.max(0, Math.min(20, cp.rerollExtra || 0));
-  G.swordDmg = !!cp.swordDmg; G.swordCool = [0,0,0]; G.swordBlock = cp.swordBlock || 0;
+  G.wave = cpNum(cp.wave, 1, 1, 2000) - 1;
+  G.time = cpNum(cp.time, 0, 0, 1e7);
+  G.kills = cpNum(cp.kills, 0, 0, 1e9);
+  G.coins = cpNum(cp.coins, 0, 0, 1e9);
+  G.coresBonus = cpNum(cp.coresBonus, 0, 0, 1e9);
+  G.bountyDone = cpNum(cp.bountyDone, 0, 0, 99); G.expOver = cpNum(cp.expOver, 0, 0, 1e9); G.bountyRef = null;
+  G.cycle = cpNum(cp.cycle, 1, 1, 99);
+  G.swords = cpNum(cp.swords, 0, 0, 3);
+  G.rerollExtra = cpNum(cp.rerollExtra, 0, 0, 20);
+  G.swordDmg = !!cp.swordDmg; G.swordCool = [0,0,0]; G.swordBlock = cpNum(cp.swordBlock, 0, 0, 9);
   G.saveUsed = !!cp.saveUsed;
-  G.shopBuys = Math.max(0, Math.min(60, typeof cp.shopBuys === 'number' ? cp.shopBuys : 0));
+  G.shopBuys = cpNum(cp.shopBuys, 0, 0, 60);
   /* 刷新次数也存：不存的话在商店里刷新页面，本轮刷新价就回到最低档 */
-  G.shopRolls = Math.max(0, Math.min(40, typeof cp.shopRolls === 'number' ? cp.shopRolls : 0));
-  G.comboCores = Math.max(0, typeof cp.comboCores === 'number' ? cp.comboCores : 0);
-  G.comboBest = Math.max(0, typeof cp.comboBest === 'number' ? cp.comboBest : 0);
-  G.hist = cp.hist || [];
+  G.shopRolls = cpNum(cp.shopRolls, 0, 0, 40);
+  G.comboCores = cpNum(cp.comboCores, 0, 0, 1e6);
+  G.comboBest = cpNum(cp.comboBest, 0, 0, 1e6);
+  G.hist = [];
+  if (Array.isArray(cp.hist)){
+    for (var hi2=0; hi2<cp.hist.length && hi2<40; hi2++){
+      var hv = cpNum(cp.hist[hi2], null);
+      if (hv !== null) G.hist.push(hv);
+    }
+  }
   G.enemies = []; G.ebullets = []; G.bullets = []; G.gems = []; G.pickups = [];
   if (cp.player){
     /* 老存档/被改过的存档可能缺字段或带 NaN，直接接管会把 NaN 传染给整局（血条瞬间满屏怪）。
        这里必须深拷贝：直接接管 cp.player 会让「内存里的存档」和正在跑的角色变成同一个对象，
        读档后的波次治疗、掉血都会写回存档，下次恢复拿到的就不是当初那一刻的状态了 */
     var pp = JSON.parse(JSON.stringify(cp.player));
+    /* 存档里的 player 字段可能一大半是缺失的（老版本存档 / 手改过的存档）。
+       缺失的运动学字段（vx/smvx/cd/aim…）会让镜头跟随算出 NaN，进而整张地图索引走进 bins[NaN]。
+       先用"本局新建角色的默认值"把缺失项补齐，再做数值校验 —— 坏值仍然由下面的 numF/numP 兜。 */
+    var bpl = G.player || {};
+    for (var bk in bpl){
+      if (pp[bk] === undefined){
+        var bv = bpl[bk];
+        if (typeof bv === 'number' || typeof bv === 'boolean' || typeof bv === 'string') pp[bk] = bv;
+      }
+    }
     var numF = function(k, d){ if (typeof pp[k] !== 'number' || !isFinite(pp[k])) pp[k] = d; };
     numF('hpMax', 100); numF('hp', pp.hpMax); numF('exp', 0); numF('expNext', 8); numF('level', 1);
+    /* 坐标缺失/NaN 会把相机、敌人网格的索引算成 NaN（bin 里 bins[NaN].push 直接抛异常整局卡死） */
+    numF('x', 0); numF('y', 0);
     numF('rate', 1.6); numF('dmg', 12); numF('spd', 190); numF('rng', 420);
     numF('collect', 70); numF('crit', 0.05); numF('cmul', 1.9); numF('armor', 0); numF('regen', 0);
+    /* 这几个为 0 或负数会直接算出 Infinity/NaN（rate=0 → 冷却 1/0），必须回落到默认正值 */
+    var numP = function(k, d){ if (!(pp[k] > 0) || !isFinite(pp[k])) pp[k] = d; };
+    numP('rate', 1.6); numP('dmg', 12); numP('rng', 420); numP('spd', 190); numP('cmul', 1.9);
     /* 这几个值为 0 或负会直接出事：expNext 为 0 → addExp 的 while 永远减不掉经验，
        hpMax 为 0 → 血条上限归零、hp 被钳成 0 却还活着 */
     if (!(pp.expNext > 0)) pp.expNext = 8;
@@ -1540,14 +1575,22 @@ function resumeRun(){
     G.player = pp;
   }
   if (G.player.level > LEVEL_CAP){ G.player.level = LEVEL_CAP; G.player.exp = 0; G.player.expNext = 1; }
-  G.stacks = cp.stacks || {}; G.evoDone = cp.evoDone || {}; G.school = cp.school || {}; G.schoolDone = cp.schoolDone || {};
-  G.mods = (cp.mods || []).map(function(m){
-    var st = m.st || {};
+  /* 这四个是"id → 次数/标记"的字典，被写坏成数组或字符串时直接当对象用会在严格模式下抛 TypeError */
+  G.stacks = cpObj(cp.stacks) || {}; G.evoDone = cpObj(cp.evoDone) || {};
+  G.school = cpObj(cp.school) || {}; G.schoolDone = cpObj(cp.schoolDone) || {};
+  G.mods = (Array.isArray(cp.mods) ? cp.mods : []).map(function(m){
+    /* 存档里的 mods 可能被写坏（null / 字符串 / 不存在的 id）：这里读 m.st 会直接抛，
+       而整段在一个 try 里，抛出去等于整局异变信息全丢 */
+    if (!m || typeof m !== 'object' || typeof m.id !== 'string') return null;
+    var known = false;
+    for (var mz=0; mz<MODS.length; mz++) if (MODS[mz].id === m.id){ known = true; break; }
+    if (!known) return null;
+    var st = cpObj(m.st) || {};
     /* 全部字段过一遍默认值（不只是计时器）：endModifiers 要拿乘数做除法，缺一项就是 NaN */
     ensureModSt(st);
     if (st._ok) delete st._ok;   /* 校验标记不进存档，读回来要重新校验一次 */
     return {id:m.id, name:m.name, tip:m.tip, st:st};
-  });
+  }).filter(Boolean);
   G.escortT = 0; G.meteorT2 = 0;
   G.modState = {};
   refreshModFlags();   /* 读档恢复的异变也要立刻反映到预算标志 */
@@ -1557,17 +1600,21 @@ function resumeRun(){
   /* 读档保留本波异变：waveStart 里的 endModifiers 会把异变整体撤掉（那是"新一波重新抽"的流程），
      存档恢复时若直接撒手，玩家战力会突然掉回基线、守点/毒圈/猎手也全部凭空消失。这里重放一次，
      属性回到存档时的值，实体（猎手/毒圈/发生器）一并重建。 */
-  var rmods = cp.mods || [];
+  var rmods = Array.isArray(cp.mods) ? cp.mods : [];
   if (rmods.length){
     for (var rmi=0; rmi<rmods.length; rmi++){
+      var rm0 = rmods[rmi];
+      /* 存档里的 mods 可能被写坏（null / 字符串 / 不存在的 id）：直接读 .id 就会抛 */
+      if (!rm0 || typeof rm0 !== 'object') continue;
       var rdef = null;
-      for (var rmk=0; rmk<MODS.length; rmk++){ if (MODS[rmk].id === rmods[rmi].id){ rdef = MODS[rmk]; break; } }
+      for (var rmk=0; rmk<MODS.length; rmk++){ if (MODS[rmk].id === rm0.id){ rdef = MODS[rmk]; break; } }
       if (!rdef) continue;
       var rbefore = G.mods.length;
       applyModifier(rdef);
       if (G.mods.length > rbefore && rmods[rmi].st){
         /* 存档里的状态值优先（reso 的系别、计时器等），但只认有限数，NaN 不许进 */
-        var rst = G.mods[G.mods.length-1].st, rsrc = rmods[rmi].st;
+        var rst = G.mods[G.mods.length-1].st, rsrc = rm0.st;
+        if (!rsrc || typeof rsrc !== 'object') rsrc = {};
         for (var rk in rsrc){
           var rv = rsrc[rk];
           if (typeof rv === 'number'){ if (isFinite(rv)) rst[rk] = rv; }
@@ -2542,6 +2589,9 @@ function bgBuild(){
     var e = ens[m2];
     if (e.dead) continue;
     var ix = Math.floor((e.x - b.ox)/c), iy = Math.floor((e.y - b.oy)/c);
+    /* 坐标被写坏时 Math.floor 会得到 NaN，而 NaN 和任何数比大小都是 false，
+       "在范围内"的判断会漏过它，最后落到 bins[NaN].push 上抛异常 */
+    if (!isFinite(ix) || !isFinite(iy)) continue;
     if (ix < 0 || ix >= n || iy < 0 || iy >= n) continue;   /* 远处敌人与子弹无关，直接丢 */
     b.bins[iy*n + ix].push(e);
   }
@@ -4232,7 +4282,9 @@ function draw(){
   ctx.restore();
 
   if (vig){
-    if (S.set.quality !== 'low') ctx.drawImage(vig, 0, 0, VW, VH);
+    /* 暗角是一整屏的 alpha 混合：逐层关闭实测占单帧约 18%（比雾、网格都贵）。
+       手动选了低画质，或自动降档已经到第 2 级，就一并跳过它 */
+    if (S.set.quality !== 'low' && AUTOQ.lv < 2) ctx.drawImage(vig, 0, 0, VW, VH);
   }
 
   if (modOn('fog')) drawFog();
@@ -5630,6 +5682,24 @@ function restartRun(){
   if (wasP){ G.practice = true; G.wave = 19; waveStart(); toast('练习模式：不计星核与战绩'); }
 }
 bind('btnRestart', restartRun);
+bind('btnCopyRun', function(){
+  var g = G; if (!g || !g.player) return;
+  var dl = (DIFF[g.diff && g.diff.key] || DIFF.normal);
+  var txt = '怪潮幸存者 · ' + (dl.name || '普通')
+    + ' · 第 ' + g.wave + ' 波'
+    + ' · Lv ' + g.player.level
+    + ' · 击杀 ' + g.kills
+    + ' · 存活 ' + Math.floor(g.time) + ' 秒'
+    + (g.comboBest ? ' · 最高连杀 ' + g.comboBest : '')
+    + ((g.cycle || 1) > 1 ? ' · 第 ' + g.cycle + ' 周目' : '')
+    + (g.mods && g.mods.length ? ' · 异变 ' + g.mods.length + ' 条' : '');
+  try{
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(function(){ toast('战绩已复制，可直接粘贴分享'); },
+        function(){ window.prompt('复制下面这段战绩', txt); });
+    } else window.prompt('复制下面这段战绩', txt);
+  }catch(e){ try{ window.prompt('复制下面这段战绩', txt); }catch(_){} }
+});
 bind('btnResume', togglePause);
 bind('btnHome', goHome);
 bind('btnRevive', reviveRun);
