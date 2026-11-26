@@ -15,7 +15,7 @@ if (!ctx){
   }catch(e){}
   return;
 }
-var VW = 0, VH = 0, DPR = 1, VZ = 1, VWW = 0, VHH = 0, SAFE_T = 0, SAFE_B = 0;
+var VW = 0, VH = 0, DPR = 1, VZ = 1, VWW = 0, VHH = 0, SAFE_T = 0, SAFE_B = 0, SAFE_L = 0, SAFE_R = 0;
 var AUTOQ = {on:false, lv:0, slow:0, fast:0};
 var vig = null, bgLayer = null;
 
@@ -24,6 +24,8 @@ var _lastRawDPR = -1;
 function resize(){
   _lastRawDPR = window.devicePixelRatio || 1;
   var dprCap = (typeof S !== 'undefined' && S && S.set && S.set.quality === 'low') ? 1.5 : 2;
+  /* 省电模式限了 30fps 但分辨率还是 2x，每帧像素量翻倍；压到 1x 才是真的省 */
+  if (typeof S !== 'undefined' && S && S.set && S.set.eco) dprCap = Math.min(dprCap, 1.0);
   if (AUTOQ.lv === 1) dprCap = Math.min(dprCap, 1.3);
   if (AUTOQ.lv === 2) dprCap = Math.min(dprCap, 1.0);
   if (AUTOQ.lv >= 3) dprCap = Math.min(dprCap, 0.8);
@@ -33,6 +35,14 @@ function resize(){
   var _cs = getComputedStyle(document.documentElement);
   SAFE_T = Math.min(64, parseFloat(_cs.getPropertyValue('--sat')) || 0);
   SAFE_B = Math.min(48, parseFloat(_cs.getPropertyValue('--sab')) || 0);
+  /* 横屏时刘海/挖孔在左侧或右侧：HUD 必须让开，否则左上角的等级/血量会被直接压掉 */
+  SAFE_L = Math.min(72, parseFloat(_cs.getPropertyValue('--sal')) || 0);
+  SAFE_R = Math.min(72, parseFloat(_cs.getPropertyValue('--sar')) || 0);
+  /* 低画质/省电：面板不再做实时模糊 */
+  try {
+    var lfx = !!(S && S.set && (S.set.quality === 'low' || S.set.eco));
+    if (lfx !== !!document.body.classList.contains('lowfx')) document.body.classList.toggle('lowfx', lfx);
+  } catch(e){}
   VZ = clamp(1, Math.min(VW, VH) / 520, 2.4);
   VWW = VW / VZ; VHH = VH / VZ;
   var ui = clamp(1, Math.min(VW*0.92/580, VH*0.88/560), 2.2);
@@ -44,6 +54,7 @@ function resize(){
   cvs.width = Math.round(VW*DPR); cvs.height = Math.round(VH*DPR);
   cvs.style.width = VW + 'px'; cvs.style.height = VH + 'px';
   buildVignette();
+  _needDraw = 1;
 }
 
 /* ================= 皮肤（更换调色板即可整套换风格） ================= */
@@ -77,7 +88,7 @@ function rgbaOf(rgb, a){
   var v = m[q];
   if (v === undefined){
     v = 'rgba(' + rgb + ',' + (q / 1000) + ')';
-    if (_rgbaN < 2048){ m[q] = v; _rgbaN++; }
+    if (_rgbaN < 1024){ m[q] = v; _rgbaN++; }
   }
   return v;
 }
@@ -162,57 +173,24 @@ try { LANG_PREF = localStorage.getItem('gz_lang'); } catch(e){}
 var EN_LANG = LANG_PREF ? (LANG_PREF === 'en') : !/^zh/i.test((navigator.language || navigator.userLanguage || 'zh'));
 try { if (!LANG_PREF){ if (/[?&]lang=en/.test(location.search)) EN_LANG = true; if (/[?&]lang=zh/.test(location.search)) EN_LANG = false; } } catch(e){}
 
-var UI_EN = {
-  '割草 · 塔防 · 无限波次':'Horde · Tower Defense · Endless Waves',
-  '自动开火，走位保命，吃经验晶体升级。活着撑过每一波，把星核带回基地永久变强。':'Auto-fire, dodge to survive, level up on XP crystals. Survive every wave and bring Cores back to grow permanently.',
-  '星核':'Cores','最佳：尚未出战':'Best: no runs yet',
-  '休闲':'Casual','普通':'Normal','困难':'Hard','噩梦':'Nightmare','地狱':'Inferno',
-  '开始战斗':'Start Run','练习模式 · 20 波起（不计星核与战绩）':'Practice · wave 20 start (no Cores or records)',
-  '每日挑战 · 任务':'Daily Challenge','继续上一局':'Continue Last Run',
-  '基地强化':'Base Upgrades','角色':'Survivors','图鉴':'Codex','战绩':'Records','设置':'Settings',
-  '返回':'Back','局外成长':'Meta Progression','星核在每局结束结算，永久生效，不随死亡丢失。':'Cores are settled after every run and persist through death.',
-  '幸存者':'Survivors','选择角色':'Choose Survivor','不同角色只是起手数值不同，后续成长路线一致。':'Survivors differ only in starting stats; growth paths are the same.',
-  '档案':'Archive','图鉴与成就':'Codex & Achievements','怪物':'Enemies','异变':'Mutations','首领':'Bosses','强化':'Upgrades','成就':'Achievements',
-  '波间商店':'Between-Wave Shop','补给站':'Supply Station','击杀攒下的金币可以在这里换成补给，价格随波次上浮。':'Spend coins from kills on supplies; prices rise with waves.',
-  '金币':'Gold','商店只在本波开始前出现':'Shop only opens before a wave',
-  '进入下一波（空格）':'Next Wave (Space)','刷新商品（-3 金币 · 快捷键 4）':'Reroll Stock (-3 Gold · key 4)',
-  '升级':'Level Up','选择一项强化':'Pick an Upgrade','重抽强化（剩 2 次）':'Reroll (2 left)',
-  '已暂停':'Paused','喘口气':'Take a Breather','按 P 或点击下方按钮继续。':'Press P or use the button below to resume.',
-  '继续战斗':'Resume','放弃本局，返回主菜单':'Abandon Run & Main Menu',
-  '阵地失守':'Position Lost','你被怪潮淹没了':'Overrun by the Horde',
-  '存活时长':'Time Survived','到达波次':'Wave Reached','击杀数量':'Kills','最终等级':'Final Level',
-  '紧急复活':'Emergency Revive','本局还有 1 次复活机会：恢复一半生命并清空身边怪物。':'One revive left: restore half HP and clear nearby enemies.',
-  '复活':'Revive','再来一局':'Play Again','战绩卡':'Share Card','主菜单':'Main Menu',
-  '秒':'s','波':'','只':'',
-  '音效':'Sound Effects','射击、受击、升级提示音':'Shots, hits, level-up cues',
-  '背景音乐':'Background Music','低频环境音，开启后会持续播放':'Low ambient loop, plays continuously when on',
-  '震动反馈':'Haptics','受伤时震动（仅部分设备支持）':'Vibrate on damage (supported devices only)',
-  '摇杆模式':'Joystick Mode','固定：以触点为中心':'Fixed: centered on touch','浮动：任意处落点':'Floating: anywhere you touch',
-  '手柄灵敏度':'Gamepad Sensitivity','左摇杆死区与响应幅度':'Left stick dead zone and response',
-  '背景音乐音量':'BGM Volume','仅影响 BGM 层':'Affects the BGM layer only',
-  '音效音量':'SFX Volume','射击、受击与提示音':'Shots, hits and cues',
-  '实时构筑面板':'Live Build Panel','显示 DPS、护甲与暴击':'Show DPS, armor and crit',
-  '省电模式':'Battery Saver','限 30fps、减少粒子':'Cap 30fps, fewer particles',
-  '粒子质量':'Particle Quality','低画质会减少爆炸粒子，提升低端机流畅度':'Low quality reduces explosion particles for smoother play',
-  '移动键':'Movement Keys','当前：':'Current: ','（浏览器或输入法抢键时可换一套）':' (switch if the browser steals keys)',
-  'WASD + 方向键':'WASD + Arrows','仅 WASD':'WASD only','仅方向键':'Arrows only','仅小键盘 8/2/4/6':'Numpad 8/2/4/6 only','切换':'Switch',
-  '打击音音量':'Hit Sound Volume','击杀与暴击的提示音，可单独调低':'Kill and crit cues, adjustable separately',
-  '性能面板':'Performance Panel','暂停':'Pause','系统':'System',
-  '第 1 波：拖动屏幕或用 WASD 移动，武器会自动瞄准最近目标':'Wave 1: drag or use WASD to move; your weapon auto-aims at the nearest target',
-  '局数 ':'Runs ','累计击杀 ':'Total kills ','击杀 ':'Kills ','次 · 最快 ':' · fastest ','秒':'s',
-  '尚未击杀':'Not defeated yet','未遭遇':'Not encountered yet','遭遇 ':'Seen ',' 次':' times','最高撑到第 ':'best wave ',' 波':'' ,
-  '推荐':'RECOMMENDED','选取 ':'Picked ','次':' times','异变（':'Mutations (',' 种）':' types)','第 6 波起出现，越往后同波叠加越多。':'Starts at wave 6; more stack over time.',
-  '首领图鉴':'Boss Codex','击杀次数与最快击杀时间':'Kills and fastest kill time','还没有记录':'No records yet','打一局，这里就会出现你的波次、等级和死因。':'Finish a run to see your wave, level and cause of death.',
-  '强化选取':'Upgrade Picks','你最常拿的卡，用来判断构筑偏好':'Most-picked cards, showing your build preference',
-  '已达成':'Unlocked','每波 DPS':'DPS per Wave','战况 · ':'Run · ',' · 全程输出稳定':' · steady DPS throughout',' 波开始崩盘':' wave is where DPS collapsed',
-  '同难度中位：第 ':'Same-difficulty median: wave ',' 局）':' runs)','（':'(',
-  '已满级':'MAX','已购':'OWNED','选择':'Select','出战中':'ACTIVE',
-  '局外强化':'Base Upgrades'
-};
 
+
+var UI_EN = null, EN_DATA = null, _enPackDone = 0;
+/* 英文表放在页面里的 #enPack JSON 块里：中文模式下完全不解析、也不进混淆器，
+   切到英文时第一次用到才 JSON.parse 一次 */
+function ensureEN(){
+  if (_enPackDone) return;
+  _enPackDone = 1;
+  try{
+    var node = document.getElementById('enPack');
+    var p = JSON.parse((node && node.textContent) || '{}');
+    UI_EN = p.ui || {}; EN_DATA = p.en || {};
+  }catch(e){ UI_EN = {}; EN_DATA = {}; }
+}
 var TXC = Object.create(null), TXN = 0;
 function tx(v){
   if (!EN_LANG || v == null) return v;
+  ensureEN();
   var t = String(v);
   if (!/[\u4e00-\u9fa5]/.test(t)) return v;
   var hit = TXC[t];
@@ -243,80 +221,11 @@ function tx(v){
   return t;
 }
 
-var EN_DATA = {
-  upg:{
-    dmg:['Heavy Warhead','All damage +25%'], rate:['Quick Trigger','Fire rate +22%'],
-    shot:['Multi-Shot','+1 projectile per shot'], pierce:['AP Core','Projectiles pierce +1 enemy'],
-    spd:['Light Armor','Move speed +12%'], hp:['Reinforced Plating','Max HP +40 and heal now'],
-    regen:['Self-Repair','+0.9 HP per second'], crit:['Weakpoint','Crit chance +10%, crit damage +10%'],
-    collect:['Magnetic Pickup','Pickup range +35%'], range:['Long-Range Calibration','Range +20%, bullet speed +15%'],
-    shock:['Shock Generator','Shock ring every 3.5s'], aura:['Burn Field','Burn nearby enemies continuously'],
-    armor:['Composite Coating','Armor +10% (diminishing)'], core:['Resource Recycling','Cores earned +20%'],
-    luck:['Lucky Gear','Supply drop chance +6%'], heal:['Field Medic','Heal 45% HP instantly']
-  },
-  evo:{
-    evo_a:['Annihilation Warhead','Heavy Warhead + Weakpoint → damage +60%, crit +15%'],
-    evo_b:['Scatter Storm','Multi-Shot + AP Core → +2 projectiles, pierce +2'],
-    evo_c:['Field Overload','Shock Generator + Burn Field → double radius, damage +40%'],
-    evo_d:['Sky-Piercing Ballistics','Long-Range + Quick Trigger → range +30%, fire rate +30%'],
-    evo_e:['Iron Bulwark','Reinforced Plating + Composite Coating → max HP +60, reduction +12%'],
-    evo_f:['Blood Recycling','Magnetic Pickup + Self-Repair → pickup +70%, regen +1.5']
-  },
-  mods:{
-    fog:['Fog Tide','Vision compressed, monsters come from the dark'], gem:['Crystal Rain','Crystals fall in sheets, fast levels this wave'],
-    air:['Supply Drop','Fewer monsters, supplies and gold doubled'], elite:['Elite Tide','Only elites and heavy units, extra Cores'],
-    hunter:['Hunter','One unkillable hunter keeps closing in'], zone:['Shrinking Zone','Safe area shrinks, damage outside'],
-    hold:['Hold the Line','Guard the central generator; off it 5s and you lose'],
-    storm:['Static Storm','Fire rate +40%, range -30%, shots deflect randomly'],
-    reso:['Resonance','One school double weight; evolution needs only 2 cards'],
-    twin:['Twin Bosses','Two weakened bosses at once'], bloodmoon:['Blood Moon','Enemy damage +40%, gold x3'],
-    swift:['Swift Tide','Enemy speed +35%, XP x1.6'], meteor:['Meteor Rain','Meteors keep falling on enemies'],
-    magnet:['Magnetic Overload','Pickup range x3, crystals snap in'], split:['Splitters','30% of kills split into two bugs'],
-    hunt:['Elite Hunt','An empowered elite every 7s'], rush:['Iron Wall','Fewer enemies, HP +60%'],
-    greed:['Greed','Gold x2, enemy HP +25%'], barrage:['Barrage','Enemy ranged fire rate +70%, bullet speed +25%'],
-    gravity:['Gravity Well','Your speed -20%, damage +35%'], echo:['Echo Shots','20% chance to fire an extra shot'],
-    thunder:['Chain Lightning','A bolt chains 3 targets every 2.2s'], famine:['Famine','XP -40%, gold +40%'],
-    brittle:['Brittle Armor','Armor -35%, speed +15%, fire rate +10%'], phantom:['Phantom','0.9s of invulnerability every 6s'],
-    siege:['Siege','Enemies +45% but HP -15%'], armored:['Ironclad','All enemies take 25% less damage'],
-    frenzy:['Death Frenzy','Enemies below 35% HP move +50% faster'], sniper:['Snipers','Ranged bullet speed +60%, damage +35%'],
-    swarmlord:['Swarm Lord','+6 extra grunts per wave'], noheal:['No Healing','Healing drops -70%, all regen -40%'],
-    bossrage:['Boss Rage','Boss attack speed +25%, damage +25%']
-  },
-  shop:{
-    med:['First Aid Kit','Restore 45% HP'], plate:['Armor Plate','Max HP +30, heal that amount'],
-    ammo:['Warhead Tuning','All damage +12%'], loader:['Speed Loader','Fire rate +10%'],
-    magnet:['Magnet Core','Pickup range +30%'], boots:['Light Boots','Move speed +8%'],
-    luck:['Lucky Charm','Supply drop chance +6%'], reroll:['Tactical Reroll','+1 reroll this run'],
-    shock:['Shock Capacitor','Shock Generator +1'], aura:['Burn Core','Burn Field +1']
-  },
-  meta:{
-    power:['Kinetic Calibration','All damage +5%'], vigor:['Structural Reinforcement','Max HP +12'],
-    swift:['Cadence Training','Move speed +3%'], magnet:['Magnetic Coil','Pickup range +6%'],
-    focus:['Target Lock','Crit chance +2%'], fortune:['Resource Recycling','Cores earned +10%'],
-    armor:['Composite Coating','Armor +3% (diminishing)']
-  },
-  chars:{
-    vanguard:['Vanguard','Balanced: HP, firepower and mobility all average — best for a first run.'],
-    gunner:['Gunner','High damage per shot, low fire rate, fragile — trade footwork for damage windows.'],
-    scout:['Scout','Extreme speed and pickup range, snowballs on XP but very fragile.']
-  },
-  diff:{easy:'Casual', normal:'Normal', hard:'Hard', nightmare:'Nightmare', inferno:'Inferno'},
-  ach:{
-    first:['First Survivor','Finish a run'], w10:['Wave Veteran','Reach wave 10 in one run'],
-    w20:['Twenty Waves','Reach wave 20 in one run'], k500:['Clearer','500 kills in one run'],
-    boss3:['Boss Ender','Defeat all 3 bosses'], total:['Long Campaign','3,000 total kills'],
-    lv15:['Evolved','Reach level 15 in one run'], allch:['Full Roster','Unlock all survivors']
-  },
-  bdef:{
-    crush:['Crusher','Frontal fan barrage — forces you to flank.'], hatch:['Hatcher','Spawns minions endlessly; stalling gets you surrounded.'],
-    lancer:['Groundsplitter','Periodic dive slam — strafe sideways.']
-  },
-  edef:{grunt:'Crawler', runner:'Runner', tank:'Heavy Brute', shooter:'Acid Spitter', swarm:'Swarm Bug', elite:'Elite Brute'},
-  theme:['Tundra','Slag','Ice Field','Void']
-};
+
 
 function localizeData(){
   if (!EN_LANG) return;
+  ensureEN();
   function ap(arr, key){ var t = EN_DATA[key] || {}; for (var i=0;i<arr.length;i++){ var d = t[arr[i].id]; if (!d) continue; if (Array.isArray(d)){ arr[i].name = d[0]; if (d[1]) arr[i].desc = d[1]; } } }
   ap(UPG,'upg'); ap(EVO,'evo'); ap(MODS,'mods'); ap(SHOP_POOL,'shop'); ap(META,'meta'); ap(ACH,'ach');
   var ch = EN_DATA.chars; for (var ck in CHARS){ if (ch[ck]){ CHARS[ck].name = ch[ck][0]; CHARS[ck].desc = ch[ck][1]; } }
@@ -333,6 +242,7 @@ function localizeData(){
 /* ================= 界面英文化 ================= */
 function localizeDOM(){
   if (!EN_LANG || !document.body) return;
+  ensureEN();
   var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
   var n, list = [];
   while ((n = walker.nextNode())){ if (/[\u4e00-\u9fa5]/.test(n.nodeValue)) list.push(n); }
@@ -539,7 +449,7 @@ function defaultSave(){
     runs:[],
     stats:{runs:0, kills:0, maxLevel:1, bosses:{crush:false, hatch:false, lancer:false}},
     up:{}, chars:{vanguard:true}, char:'vanguard', diff:'normal',
-    set:{sfx:true, bgm:true, bgmSet:false, vib:true, quality:'high', stick:'fixed', speed:1, cycle:1, keys:'both', volHit:0.8, perf:false},
+    set:{sfx:true, bgm:true, bgmSet:false, vib:true, quality:'high', stick:'fixed', speed:1, cycle:1, keys:'both', volHit:0.8, perf:false, shakeOff:false},
     ach:{}, tutorial:false, modSeen:{}, modBest:{}, daily:{date:'', best:0}, vol:0.8, volBgm:0.8, padSens:1,
     hudInfo:true, eco:false,
     pickStats:{}, bossBook:{}, checkpoint:null, autoResume:false, lastRescue:0,
@@ -584,6 +494,12 @@ function loadSave(){
   if (typeof S.set.volBgm !== 'number') S.set.volBgm = 0.8;
   if (!S.pickStats) S.pickStats = {};
   if (typeof S.set.hudInfo !== 'boolean') S.set.hudInfo = true;
+  /* 系统开启"减少动态效果"（前庭/晕动症用户常开）时，屏幕震动默认关闭，可在设置里改回来 */
+  if (typeof S.set.shakeOff !== 'boolean'){
+    var _rm = false;
+    try{ _rm = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }catch(e){}
+    S.set.shakeOff = _rm;
+  }
   if (typeof S.set.eco !== 'boolean') S.set.eco = false;
   if (!S.bossBook) S.bossBook = {};
   if (!S.quests) S.quests = {date:'', runs:0, boss:0, best:0, paid:{}};
@@ -669,6 +585,11 @@ function audioCtx(){
 var _toneLast = {t:0, f:0};
 
 function tone(freq, dur, type, vol, music, hit){
+  /* 开关统一在这里把住：sfx() 里有检查，但开局音、BGM 二次音这些直接调 tone 的地方会漏 */
+  if (typeof S !== 'undefined' && S && S.set){
+    if (music){ if (S.set.bgm === false) return; }
+    else if (S.set.sfx === false) return;
+  }
   var now = Date.now();
   if (Math.abs(freq - _toneLast.f) < 1 && now - _toneLast.t < 55) return;
   _toneLast.f = freq; _toneLast.t = now;
@@ -740,16 +661,30 @@ function coinNow(){ var c = G && G.coins ? G.coins : 0; return Math.floor(c + 1e
 function rnd(a,b){ return a + Math.random()*(b-a); }
 function dist2(ax,ay,bx,by){ var dx=ax-bx, dy=ay-by; return dx*dx + dy*dy; }
 /* toLocaleString 在手机上很贵且 HUD 每帧都要调用，这里手写千分位 */
+var _fmtIn = null, _fmtOut = '0';
 function fmt(n){
   n = Math.round(n);
   if (!isFinite(n)) return '0';
+  if (n === _fmtIn) return _fmtOut;
+  var _raw = n;
   var neg = n < 0; if (neg) n = -n;
   var str = '' + n, out = '', cnt = 0;
   for (var i=str.length-1; i>=0; i--){
     out = str.charAt(i) + out;
     if (++cnt % 3 === 0 && i > 0) out = ',' + out;
   }
-  return (neg ? '-' : '') + out;
+  _fmtIn = (neg ? -_raw : _raw);
+  _fmtOut = _fmtIn < 0 ? ('-' + out) : out;
+  return _fmtOut;
+}
+
+/* 结算页一行要放得下：上万的数改写成"2.4万 / 1.0亿"，避免被折成第三行 */
+function kfmt(n){
+  n = Math.round(n);
+  if (!isFinite(n) || n <= 0) return '0';
+  if (n >= 1e8) return (n/1e8).toFixed(1).replace(/\.0$/, '') + '亿';
+  if (n >= 1e4) return (n/1e4).toFixed(1).replace(/\.0$/, '') + '万';
+  return fmt(n);
 }
 
 /* ================= 局内状态 ================= */
@@ -817,7 +752,7 @@ function newGame(){
     parts:[], partPool:[], dmgs:[], rings:[],
     deco: deco, dust: dust,
     spawnT:0.35, shockT:3.5, auraT:0, guard:null, shopBuys:0, shopRolls:0, splitQ:[],
-    shake:0, hitstop:0, comboK:0, comboT:0, comboBreak:0, waveHeal:0, deathCause:'', lastSrc:'', heartT:0, saveUsed:false, bossKills:0, breathe:false, wdmg:0, wtaken:0, hist:[], hellBonus:0,
+    shake:0, hitstop:0, comboK:0, comboT:0, comboBreak:0, waveHeal:0, deathCause:'', lastSrc:'', heartT:0, saveUsed:false, bossKills:0, breathe:false, wdmg:0, wtaken:0, runDmg:0, runTaken:0, hist:[], hellBonus:0,
     boss:null, bossDef:null,
     mods:[], modState:{}, modUsed:[], hunter:null, zone:null, hold:null, meteors:[], zaps:[], coresBonus:0,
     cycle: Math.max(1, S.set.cycle || 1), theme:0, bossWarn:null,
@@ -1187,6 +1122,7 @@ function hitEnemy(e, dmg, big, noSplash){
   e.hp -= dmg;
   if (e.training) e.tDmg = (e.tDmg || 0) + dmg;
   G.wdmg = (G.wdmg || 0) + dmg;
+  G.runDmg = (G.runDmg || 0) + dmg;
   if (e.boss && !e.dead){
     var ratio = e.hp / e.hpMax;
     var want = ratio <= 0.15 ? 3 : (ratio <= 0.4 ? 2 : 1);
@@ -1258,9 +1194,7 @@ function killEnemy(e){
   G.coins += ((e.boss ? 20 : (e.elite ? 6 : ({tank:3, shooter:2}[e.type] || 1))) * cm);
   if (modOn('elite') && e.elite) G.coresBonus++;
   if (modOn('split') && !e.boss && !e.elite && Math.random() < 0.3){
-    /* 分裂怪不能在这里直接 push：此刻正在 for(enemies) / 子弹遍历里，
-       新增元素会被同一遍历立刻命中（同颗子弹连锁爆裂），而且绕过敌人数上限。
-       记到队列，交给帧末的 updateSpawn 统一生成。 */
+    /* 分裂怪不能当场 push：正在 for(enemies)/子弹遍历里，新增会被同一遍历立刻命中且绕过上限。记入队列，帧末 updateSpawn 统一生成。 */
     (G.splitQ || (G.splitQ = [])).push({x: e.x, y: e.y});
   }
   burst(e.x, e.y, e.col, e.boss ? 320 : 200, e.boss ? 34 : 9);
@@ -1271,7 +1205,7 @@ function killEnemy(e){
   var cmMark = COMBO_CORES;
   if (cmMark[G.comboK]){
     G.comboCores = (G.comboCores || 0) + cmMark[G.comboK];
-    toast('连杀 ' + G.comboK + ' · 星核 +' + cmMark[G.comboK]);
+    comboToast('连杀 ' + G.comboK + ' · 星核 +' + cmMark[G.comboK]);
     sfx('coin');
   }
   if (e.boss) G.shake = Math.max(G.shake, 12);
@@ -1370,6 +1304,7 @@ function damagePlayer(raw, src){
   }
   var d = raw * armorTaken(p.armor) * (p.dmgTake || 1);
   G.wtaken = (G.wtaken || 0) + d;
+  G.runTaken = (G.runTaken || 0) + d;
   p.hp -= d;
   if (src) G.lastSrc = src;
   p.hurtFlash = 0.28;
@@ -1468,16 +1403,21 @@ function saveCheckpoint(persist, force){
     S.checkpoint = {
       wave: G.wave, waveT: G.waveT, time: G.time, kills: G.kills, coins: G.coins,
       coresBonus: G.coresBonus || 0, cycle: G.cycle || 1, swords: G.swords || 0,
+      dmg: G.runDmg || 0, tkn: G.runTaken || 0,
       rerollExtra: G.rerollExtra || 0,
       swordDmg: !!G.swordDmg, swordBlock: G.swordBlock || 0,
       bountyDone: G.bountyDone || 0, expOver: G.expOver || 0,
-      /* 这几个是"一次性资源/累计价格"，不存就会被读档刷新掉：
-         saveUsed → 前 10 波的救命护盾能反复白拿；
-         shopBuys → 单局累计涨价归零，买到一半刷新页面就回到基础价；
-         comboCores → 这局攒的连杀星核直接丢，结算少给；
-         comboBest → 结算页"最高连杀"归零 */
+      /* 一次性资源/累计价格必须入档，否则读档被刷新：saveUsed 护盾、shopBuys 单局涨价、comboCores 连杀星核、comboBest 最高连杀。 */
       saveUsed: !!G.saveUsed, shopBuys: G.shopBuys || 0, shopRolls: G.shopRolls || 0,
       comboCores: G.comboCores || 0, comboBest: G.comboBest || 0, waveHeal: G.waveHeal || 0,
+      /* 这几项以前没存，刷新页面就能白拿一次复活、每日任务的"击杀首领"也会从 0 重新数 */
+      revived: !!G.revived, canRevive: G.canRevive !== false,
+      bossKills: G.bossKills || 0, comboK: G.comboK || 0,
+      quest: (G.quest ? {
+        type: G.quest.type === 'nohit' ? 'nohit' : 'kill',
+        need: G.quest.need || 0, kills0: G.quest.kills0 || 0, taken0: G.quest.taken0 || 0,
+        done: !!G.quest.done, wave0: G.quest.wave0
+      } : null),
       diff: (G.diff && G.diff.key) || S.diff, char: S.char, hist: G.hist || [],
       player: JSON.parse(JSON.stringify(G.player)),
       stacks: JSON.parse(JSON.stringify(G.stacks || {})),
@@ -1495,11 +1435,7 @@ function saveCheckpoint(persist, force){
 function resumeRun(){
   var cp = S.checkpoint;
   if (!cp) return;
-  /* ==== 存档消毒 ====
-     存档不只来自本机：设置里可以粘贴别人分享的文本导入，写入也可能被断电截断。
-     只要有一个字段是 "abc" / null / Infinity，直接进游戏就会把字符串拼进 time、把 NaN 传给
-     swords，几帧之内整局崩掉（下面每个字段都过一遍 cpNum：非有限数一律回落默认值）。
-     cpNum(v, 默认, 最小, 最大) —— 字符串能转成数字的也接受（"12" → 12）。 */
+  /* ==== 存档消毒 ==== 存档可能来自分享/手改/断电截断，单个坏字段（"abc"/null/Infinity）就能把 time 拼成字符串、给 swords 塞 NaN，几帧内整局崩。下面每个字段过 cpNum：非有限数回落默认值，可转数字的字符串也接受。 */
   var cpNum = function(v, d, lo, hi){
     var n = v;
     if (typeof n === 'string' && n.trim() !== '') n = Number(n);
@@ -1519,6 +1455,9 @@ function resumeRun(){
   G.kills = cpNum(cp.kills, 0, 0, 1e9);
   G.coins = cpNum(cp.coins, 0, 0, 1e9);
   G.coresBonus = cpNum(cp.coresBonus, 0, 0, 1e9);
+  /* 续局后统计不能从 0 起，否则结算页的"本局输出"只算最后一段 */
+  G.runDmg = cpNum(cp.dmg, 0, 0);
+  G.runTaken = cpNum(cp.tkn, 0, 0);
   G.bountyDone = cpNum(cp.bountyDone, 0, 0, 99); G.expOver = cpNum(cp.expOver, 0, 0, 1e9); G.bountyRef = null;
   G.cycle = cpNum(cp.cycle, 1, 1, 99);
   G.swords = cpNum(cp.swords, 0, 0, 3);
@@ -1530,6 +1469,23 @@ function resumeRun(){
   G.shopRolls = cpNum(cp.shopRolls, 0, 0, 40);
   G.comboCores = cpNum(cp.comboCores, 0, 0, 1e6);
   G.comboBest = cpNum(cp.comboBest, 0, 0, 1e6);
+  /* 复活机会只能给一次，读档必须还原这个状态，否则刷新页面等于白送一次复活 */
+  G.revived = !!cp.revived;
+  if (cp.canRevive === false) G.canRevive = false;
+  G.bossKills = cpNum(cp.bossKills, 0, 0, 1e6);
+  G.comboK = cpNum(cp.comboK, 0, 0, 1e6);
+  G.quest = null;
+  var cq = cpObj(cp.quest);
+  if (cq && typeof cq.wave0 !== 'undefined'){
+    var qWave0 = cpNum(cq.wave0, -1, 0, 2000);
+    if (qWave0 > 0){
+      G.quest = {
+        type: cq.type === 'nohit' ? 'nohit' : 'kill',
+        need: cpNum(cq.need, 0, 0, 1e4), kills0: cpNum(cq.kills0, 0, 0, 1e9),
+        taken0: cpNum(cq.taken0, 0, 0, 1e9), done: !!cq.done, wave0: qWave0
+      };
+    }
+  }
   G.hist = [];
   if (Array.isArray(cp.hist)){
     for (var hi2=0; hi2<cp.hist.length && hi2<40; hi2++){
@@ -1539,13 +1495,9 @@ function resumeRun(){
   }
   G.enemies = []; G.ebullets = []; G.bullets = []; G.gems = []; G.pickups = [];
   if (cp.player){
-    /* 老存档/被改过的存档可能缺字段或带 NaN，直接接管会把 NaN 传染给整局（血条瞬间满屏怪）。
-       这里必须深拷贝：直接接管 cp.player 会让「内存里的存档」和正在跑的角色变成同一个对象，
-       读档后的波次治疗、掉血都会写回存档，下次恢复拿到的就不是当初那一刻的状态了 */
+    /* 读档必须深拷贝：直接接管 cp.player 会让存档与当前角色同一对象，之后的回血/掉血写回存档，下次恢复就不是那一刻的状态；缺字段/NaN 也会传染整局。 */
     var pp = JSON.parse(JSON.stringify(cp.player));
-    /* 存档里的 player 字段可能一大半是缺失的（老版本存档 / 手改过的存档）。
-       缺失的运动学字段（vx/smvx/cd/aim…）会让镜头跟随算出 NaN，进而整张地图索引走进 bins[NaN]。
-       先用"本局新建角色的默认值"把缺失项补齐，再做数值校验 —— 坏值仍然由下面的 numF/numP 兜。 */
+    /* 存档的 player 可能缺大半字段（老版本/手改）：缺 vx/smvx/cd/aim 会让镜头算出 NaN、地图索引踩 bins[NaN]。先用新角色默认值补齐，坏值再由 numF/numP 兜。 */
     var bpl = G.player || {};
     for (var bk in bpl){
       if (pp[bk] === undefined){
@@ -1597,9 +1549,7 @@ function resumeRun(){
   G.resuming = true;
   waveStart();
   G.resuming = false;
-  /* 读档保留本波异变：waveStart 里的 endModifiers 会把异变整体撤掉（那是"新一波重新抽"的流程），
-     存档恢复时若直接撒手，玩家战力会突然掉回基线、守点/毒圈/猎手也全部凭空消失。这里重放一次，
-     属性回到存档时的值，实体（猎手/毒圈/发生器）一并重建。 */
+  /* 读档保留本波异变：waveStart 的 endModifiers 会整体撤掉异变，撒手会让战力掉回基线、守点/毒圈/猎手消失。这里按存档值重放并重建实体。 */
   var rmods = Array.isArray(cp.mods) ? cp.mods : [];
   if (rmods.length){
     for (var rmi=0; rmi<rmods.length; rmi++){
@@ -1656,12 +1606,18 @@ function spawnBounty(){
 }
 
 function spawnWaveContent(){
-  if (G.wave % 5 === 0) spawnBoss();
+  var bossWave = (G.wave % 5 === 0);
+  if (bossWave) spawnBoss();
   else {
     toast('第 ' + G.wave + ' 波');
     for (var wi=0; wi<3 && wi<G.wave; wi++) spawnEnemy('grunt');
     if (modOn('swarmlord')) for (var sl=0; sl<6; sl++) spawnEnemy('grunt');
-    if (modOn('twin')) spawnTwinBosses();
+  }
+  /* 双生首领以前只写在 else 分支里，首领波永远遇不到这一条异变。
+     现在首领波也叠一对，但血量/伤害再砍一档，别让一局同时吃三个首领 */
+  if (modOn('twin')){
+    spawnTwinBosses(bossWave);
+    if (bossWave) comboToast('双生首领加入战场');
   }
   showModToast();
   tone(660, 0.12, 'sine', 0.05);
@@ -2054,16 +2010,22 @@ function updateModifiers(dt){
   }
 }
 
-function spawnTwinBosses(){
+function spawnTwinBosses(withBoss){
   var p = G.player;
+  var hpK = withBoss ? 0.2 : 0.34, dmgK = withBoss ? 0.42 : 0.55;
+    /* 首领波叠双生只在普通/困难保持原系数，噩梦、地狱再各削一档 */
+    if (withBoss){
+      var dk2 = (G.diff && G.diff.key === 'inferno') ? 0.7 : ((G.diff && G.diff.key === 'nightmare') ? 0.82 : 1);
+      hpK *= dk2; dmgK *= dk2;
+    }
   for (var ti=0; ti<2; ti++){
     var b = BDEF[(G.wave + ti) % BDEF.length];
     var ang = rnd(0, 6.28);
     var rad = Math.max(340, Math.min(390, Math.min(VW,VH)*0.9));
     var e = {
       type:'elite', x:p.x+Math.cos(ang)*rad, y:p.y+Math.sin(ang)*rad, r:b.r*0.8,
-      hp:b.hp*0.34*G.diff.hpMul, hpMax:b.hp*0.34*G.diff.hpMul,
-      spd:b.spd*1.1, dmg:b.dmg*0.55, col:b.col, xp:14,
+      hp:b.hp*hpK*G.diff.hpMul, hpMax:b.hp*hpK*G.diff.hpMul,
+      spd:b.spd*1.1, dmg:b.dmg*dmgK, col:b.col, xp:14,
       rot:0, tcd:0, timer:1.6, hurt:0, dead:false,
       boss:false, elite:true, mini:true, shoot:true, bossDef:b
     };
@@ -2170,6 +2132,56 @@ function renderShop(){
   sr.disabled = coinNow() < sc;
   var srl = (G.shopRolls || 0);
   sr.textContent = '刷新商品 · ' + sc + ' 金币' + (srl ? '（本波已刷 ' + srl + ' 次）' : '') + '（快捷键 4）';
+  /* 一键买：从便宜的买起，钱够全买就全买，钱不够就买到买不起为止 */
+  var sa = document.getElementById('btnShopAll');
+  if (sa){
+    var cnt2 = 0, minP = Infinity;
+    for (var bi2=0; bi2<shopItems.length; bi2++){
+      var it2 = shopItems[bi2];
+      if (it2 && !it2.sold){ cnt2++; if (it2.price < minP) minP = it2.price; }
+    }
+    var ns2 = G.swords || 0;
+    if (ns2 < 3){ cnt2++; var sp2 = 70 + ns2*80; if (sp2 < minP) minP = sp2; }
+    else if (!G.swordDmg && (G.shopSwordsAtOpen || 0) >= 3){ cnt2++; if (220 < minP) minP = 220; }
+    if (!cnt2){ sa.disabled = true; sa.textContent = '本店已买完'; }
+    else if (coinNow() < minP){ sa.disabled = true; sa.textContent = '金币不足'; }
+    else { sa.disabled = false; sa.textContent = '一键买下能买的 · ' + cnt2 + ' 项（含飞剑）'; }
+  }
+}
+
+function buyAllShop(){
+  if (!G || G.state !== 'shop') return;
+  /* 强化卡、飞剑、淬锋统一进候选，按现价从低到高，能买就买；飞剑每买一把价会涨，所以一轮一轮算 */
+  var done = 0, spent = 0, rounds = 0;
+  while (rounds++ < 10){
+    var opts = [];
+    for (var i=0; i<shopItems.length; i++){
+      var s2 = shopItems[i];
+      if (s2 && !s2.sold) opts.push({p: s2.price, k: 0, it: s2});
+    }
+    var ns = G.swords || 0;
+    if (ns < 3) opts.push({p: 70 + ns*80, k: 1});
+    else if (!G.swordDmg && (G.shopSwordsAtOpen || 0) >= 3) opts.push({p: 220, k: 2});
+    if (!opts.length) break;
+    opts.sort(function(a,b){ return a.p - b.p; });
+    var pick = null;
+    for (var j=0; j<opts.length; j++){ if (coinNow() >= opts[j].p){ pick = opts[j]; break; } }
+    if (!pick) break;
+    if (pick.k === 0){
+      G.coins -= pick.p;
+      pick.it.sold = true;
+      G.shopBuys = (G.shopBuys || 0) + 1;
+      pick.it.def.apply(G.player);
+    } else {
+      G.coins -= pick.p;
+      if (pick.k === 1) addBlade(); else upgradeBlades();
+    }
+    done++; spent += pick.p;
+  }
+  renderShop();
+  if (!done){ toast('金币不足'); return; }
+  toast('已买 ' + done + ' 项 · 花费 ' + fmt(spent) + ' 金币');
+  sfx('coin');
 }
 
 function buyShopItem(i){
@@ -2244,9 +2256,7 @@ function addExp(v){
   }
 }
 
-/* 敌方弹幕统一入口：弹幕异变叠多个首领时，子弹会无上限堆积——
-   每颗每帧都要判定命中并描边，几百颗就能把中端机拖到 30fps 以下。
-   满了就丢新弹（老弹正常飞完），不会出现"子弹凭空消失"的突兀感。 */
+/* 敌方弹幕统一入口：异变叠多个首领时子弹会无上限堆积，几百颗就能把中端机拖到 30fps 以下。满了丢新弹，老弹正常飞完。 */
 var EB_CAP = 260;
 function pushEB(o){
   if (G.ebullets.length >= EB_CAP) return null;
@@ -2451,14 +2461,17 @@ function startQuest(){
   if (G.wave % 10 !== 1) return;
   var nohit = G.wave >= 11 && Math.random() < 0.4;
   G.quest = nohit
-    ? {type:'nohit', need:0, taken0:G.wtaken, kills0:G.kills, done:false}
-    : {type:'kill', need:20 + G.wave*2, kills0:G.kills, taken0:G.wtaken, done:false};
+    ? {type:'nohit', need:0, taken0:G.wtaken, kills0:G.kills, done:false, wave0:G.wave}
+    : {type:'kill', need:20 + G.wave*2, kills0:G.kills, taken0:G.wtaken, done:false, wave0:G.wave};
   toast(nohit ? '支线：本波不受伤' : ('支线：本波击杀 ' + G.quest.need + ' 只'));
 }
 
 function updateQuest(){
   var q = G.quest;
   if (!q || q.done) return;
+  /* 支线只在本波有效：换波就作废。原来不清理，下一波 wtaken 被清零，
+     "本波不受伤"会和 0 比出恒真，白送金币与增伤（真 bug，已复现） */
+  if (typeof q.wave0 === 'number' && G.wave !== q.wave0){ G.quest = null; return; }
   var ok = (q.type === 'nohit') ? (G.wtaken - q.taken0 <= 0 && G.waveT > 12)
                                : (G.kills - q.kills0 >= q.need);
   if (!ok) return;
@@ -2566,9 +2579,7 @@ function updateEnemies(dt){
 }
 
 /* --- 玩家子弹 --- */
-/* 子弹命中查询的网格：每帧把存活敌人按 128px 格子索引一次（16×16 覆盖以相机为中心 2048 的方区），
-   子弹只扫自己周围 5×5 格，避免每颗子弹都线性遍历全场敌人。
-   桶数组只分配一次，清空用 length=0，无每帧垃圾。 */
+/* 子弹网格：每帧按 128px 把敌人索引一次（16×16 覆盖相机 2048 方区），子弹只扫周围 5×5 格；桶数组复用，清空用 length=0。 */
 var BG = {c:128, n:16, bins:null, ox:0, oy:0, built:-1};
 function bgBuild(){
   var b = BG;
@@ -3066,9 +3077,7 @@ function drawGrid(camX, camY){
   ctx.stroke();
 }
 
-/* 装饰的几何完全静态。原来每个装饰每帧 save/translate/rotate/fill/stroke/restore 七条命令，
-   现在把局部顶点按 rot 旋转 + 平移到世界坐标，合并成一份总 Path2D 缓存，每帧只剩 fill/stroke。
-   视野外的那几块交给 Skia 裁掉，比 32 次矩阵切换便宜得多。 */
+/* 装饰几何静态：局部顶点按 rot 旋转再平移到世界坐标，合并成一份 Path2D，每帧只 fill/stroke（原每装饰 7 条命令）。 */
 function decoLocal(d, huaxia){
   if (d._p && d._pk === SKIN) return;
   var p2 = new Path2D();
@@ -3113,11 +3122,14 @@ function drawDeco(camX, camY){
     /* 水墨山石：起伏棱角 + 皴笔，不作团状云块 */
     ctx.fillStyle = 'rgba(24,21,16,0.9)';
     ctx.fill(b.main);
-    ctx.strokeStyle = P.rgba(P.dimRGB, 0.2);
-    ctx.lineWidth = 1;
-    ctx.stroke(b.main);
-    ctx.strokeStyle = P.rgba(P.amRGB, 0.12);
-    ctx.stroke(b.extra);
+    /* 两条大路径描边在低画质下省掉：山石轮廓还在，只是没有皴笔与金边 */
+    if (S.set.quality !== 'low'){
+      ctx.strokeStyle = P.rgba(P.dimRGB, 0.2);
+      ctx.lineWidth = 1;
+      ctx.stroke(b.main);
+      ctx.strokeStyle = P.rgba(P.amRGB, 0.12);
+      ctx.stroke(b.extra);
+    }
   } else {
     ctx.fillStyle = b.th.fill;
     ctx.fill(b.main);
@@ -3128,6 +3140,8 @@ function drawDeco(camX, camY){
 }
 
 function drawDust(camX, camY){
+  /* 低画质下这层纯装饰最先砍：40 颗的合批与插值都不便宜，玩家几乎看不出少了 */
+  if (S.set.quality === 'low') return;
   /* 尘埃同样合批：透明度量化到 5 档，40 颗只留几次 fill */
   dotReset();
   for (var i=0;i<G.dust.length;i++){
@@ -3169,9 +3183,7 @@ function introSweep(r, ip){
   return o;
 }
 
-/* 精英/吐酸/首领的外圈光环拆出来批量描边：
-   原来每只各来一次 beginPath+arc+stroke，满屏精英时光环就吃掉上百次 stroke；
-   现在按三种颜色分三组 path，各描一次，视觉完全一致 */
+/* 精英/吐酸/首领光环按三种颜色分三组 path 各描一次（原每只各一次 beginPath+arc+stroke，满屏精英上百次）。 */
 var _ringB = [], _ringE = [], _ringS = [];
 /* 相机矩阵（draw 内每帧算一次）：敌人逐个 setTransform 用，
    省掉每只一次 save/translate/rotate/restore 四次状态栈操作 */
@@ -3286,9 +3298,7 @@ function ringStroke(list, pad){
   ctx.stroke();
 }
 
-/* 敌人形状整体画在给定的 2d 上下文里（原点=敌人中心，单位=世界坐标），
-   drawEnemy 首次遇到某个「形状+颜色+尺寸+像素密度」组合时用它预渲染一张精灵，
-   之后每帧只需要 setTransform + drawImage 两条命令，省掉 6~10 条 path 命令 */
+/* 敌人形状画在给定 ctx（原点=中心，单位=世界坐标）；drawEnemy 按「形状+颜色+尺寸+DPR」预渲染精灵，之后每帧只剩 setTransform+drawImage。 */
 function paintEnemy(c, e, col, eGlow){
   if (e.mini){
     c.beginPath();
@@ -3400,7 +3410,7 @@ function enemySprite(e, col, eGlow){
   c2.translate(szD*0.5, szD*0.5);
   c2.scale(ENK, ENK);
   try { paintEnemy(c2, e, col, eGlow); } catch(err){ return null; }
-  if (_sprN > 160){ _sprC = Object.create(null); _sprN = 0; }   /* 换皮肤/改窗口会留下旧 key，兜个上限 */
+  if (_sprN > 96){ _sprC = Object.create(null); _sprN = 0; }   /* 换皮肤/改窗口会留下旧 key，兜个上限 */
   got = _sprC[key] = {c: cn, size: szD};
   _sprN++;
   return got;
@@ -3417,6 +3427,9 @@ function drawEnemy(e){
   else if (e.shape === 'box') ang = e.rot*0.35;
   else if (e.shape === 'dia') ang = e.rot*0.5;
   else ang = 0;
+  /* 低画质/省电：普通怪不旋转。多数怪是圆形/多边形，静止角度几乎看不出，
+     但每只每帧省一对三角函数 + 一个六参数矩阵 */
+  if (ang && !e.boss && S && S.set && (S.set.quality === 'low' || S.set.eco)) ang = 0;
   var ca = Math.cos(ang), sa = Math.sin(ang);
   ctx.setTransform(ENK*ca, ENK*sa, -ENK*sa, ENK*ca, ENK*e.x + ENTX, ENK*e.y + ENTY);
   var col = e.hurt > 0 ? '#ffffff' : e.col;
@@ -3531,6 +3544,7 @@ function drawPlayer(){
   ctx.lineWidth = 1; ctx.stroke();
 }
 
+var _HFS = Object.create(null), _HFK = -1;
 function drawHud(){
   var p = G.player;
   /* canvas 每帧重设同一串 font 也有解析成本，drawHud 内同一字体只设一次 */
@@ -3538,13 +3552,16 @@ function drawHud(){
   function useF(f){ if (f !== _lf){ ctx.font = f; _lf = f; } }
   var k = clamp(0.86, Math.min(VW/414, VH/820), 1.95);
   function F(n){ return Math.round(n*k); }
-  var FS = {};
+  /* 字号字典跨帧复用：以前每帧新建一个对象再塞十来个 key，白送 GC 一点活 */
+  if (_HFK !== k){ _HFS = Object.create(null); _HFK = k; }
   function FN(w, size){
-    var key = w + '_' + size, v = FS[key];
-    if (!v){ v = FS[key] = w + ' ' + F(size) + 'px "Noto Serif SC","Songti SC","STSong",serif'; }
+    var key = w + '_' + size, v = _HFS[key];
+    if (!v){ v = _HFS[key] = w + ' ' + F(size) + 'px "Noto Serif SC","Songti SC","STSong",serif'; }
     return v;
   }
-  var HWW = Math.min(VW, VWW || VW), HX = (VW - HWW) / 2;
+  /* 可用宽度先扣掉左右安全区，横屏也能完整显示（竖屏 SAFE_L/R 为 0，行为与原来一致） */
+  var aw = VW - SAFE_L - SAFE_R;
+  var HWW = Math.min(aw, VWW || aw), HX = SAFE_L + (aw - HWW) / 2;
   var pad = HX + F(16);
   var top = F(10);
   /* 安全区：刘海/灵动岛机型上画布是全屏的，顶部 HUD 会被盖住，统一下移 SAFE_T */
@@ -3693,9 +3710,10 @@ function drawHud(){
   ctx.textAlign = 'right';
   useF(FN(700,12));
   ctx.fillStyle = P.rgba(P.inkRGB,0.66);
-  ctx.fillText('击杀 ' + G.kills, HX + HWW - F(16), F(84));
+  /* 击杀/金币以前直接拼数字，五位数之后就糊成一片，跟商店、结算页的千分位也对不上 */
+  ctx.fillText('击杀 ' + fmt(G.kills), HX + HWW - F(16), F(84));
   ctx.fillStyle = P.am;
-  ctx.fillText('金币 ' + coinNow(), HX + HWW - F(16), F(104));
+  ctx.fillText('金币 ' + fmt(coinNow()), HX + HWW - F(16), F(104));
   /* 状态条：同一位置按优先级只显示最要紧的一条 */
   var stTxt = '', stCol = P.cy;
   if (G.gate){ stTxt = '守关 ' + Math.max(0, Math.ceil(G.gate.t)) + 's'; stCol = '#e0796a'; }
@@ -4060,7 +4078,7 @@ function draw(){
     if (th0){ ctx.fillStyle = th0.tint; ctx.fillRect(0, 0, VW, VH); }
   }
 
-  var sh = G.shake > 0 ? G.shake * 0.5 : 0;
+  var sh = (G.shake > 0 && !(S.set && S.set.shakeOff)) ? G.shake * 0.5 : 0;
   var ox = -camX + VW/2 + (sh ? (Math.random()-0.5)*sh : 0);
   var oy = -camY + VH/2 + (sh ? (Math.random()-0.5)*sh : 0);
 
@@ -4208,8 +4226,7 @@ function draw(){
     ctx.strokeStyle = 'rgba(255,190,206,0.7)'; ctx.lineWidth = ebi === 2 ? 1.7 : 1.5; ctx.stroke();
   }
 
-  /* 玩家子弹：预渲染一张朝右的弹体，每颗只剩 setTransform + drawImage 两条命令。
-     原来华夏皮肤每颗 save/translate/rotate/3 段 path/fill/stroke ≈ 9 条，射速拉满时是整屏最大的命令源 */
+  /* 玩家子弹预渲染朝右弹体，每颗只剩 setTransform+drawImage（原华夏皮肤每颗约 9 条命令，射速拉满是最大命令源）。 */
   for (i=0;i<G.bullets.length;i++){
     var b = G.bullets[i];
     if (Math.abs(b.x-camX) > VW/2+60 || Math.abs(b.y-camY) > VH/2+60) continue;
@@ -4300,9 +4317,7 @@ function draw(){
   drawHud();
 }
 
-/* 低血量红晕：原来每帧整屏铺一次半透明红（全屏 alpha 混合是移动端光栅化最贵的一类）。
-   现在只画四条边的渐变，像素量约原来的 1/5；渐变按尺寸缓存，尺寸/DPR 变了才重建，
-   不然四条纯色矩形拼出来的交界线会露馅 */
+/* 低血红晕只画四边渐变（全屏 alpha 混合在移动端最贵）；渐变按尺寸缓存，尺寸/DPR 变了才重建，否则交界线露馅。 */
 var _edgeC = null;
 function drawHurtEdge(){
   var eh = Math.round(Math.min(92, VH*0.115));
@@ -4357,6 +4372,7 @@ function drawBountyMark(camX, camY){
 /* ================= UI ================= */
 var SCREENS = ['scrMenu','scrMeta','scrChars','scrCodex','scrStats','scrSet','scrLevel','scrShop','scrPause','scrOver'];
 var elToast = document.getElementById('toast');
+var elComboToast = document.getElementById('comboToast');
 var toastTimer = null;
 var hintTimer = null;
 
@@ -4365,6 +4381,15 @@ function toast(text){
   elToast.classList.add('on');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function(){ elToast.classList.remove('on'); }, 1500);
+}
+
+var comboToastTimer = null;
+function comboToast(text){
+  if (!elComboToast) return;
+  elComboToast.textContent = text;
+  elComboToast.classList.add('on');
+  clearTimeout(comboToastTimer);
+  comboToastTimer = setTimeout(function(){ elComboToast.classList.remove('on'); }, 1200);
 }
 
 function hint(text, ms){
@@ -4376,6 +4401,8 @@ function hint(text, ms){
 }
 
 function showScreen(id){
+  /* 切页面时把连杀播报收掉，别在菜单/结算页上还飘着一行 */
+  if (elComboToast){ elComboToast.classList.remove('on'); clearTimeout(comboToastTimer); }
   for (var i=0;i<SCREENS.length;i++){
     var s = document.getElementById(SCREENS[i]);
     if (s) s.classList.add('hide');
@@ -4601,7 +4628,10 @@ function renderStats(){
 }
 
 function renderCodex(){
-  document.getElementById('codexTotal').textContent = '局数 ' + S.stats.runs + ' / 累计击杀 ' + fmt(S.stats.kills);
+  var achN = 0;
+  for (var ai=0; ai<ACH.length; ai++){ if (S.ach && S.ach[ACH[ai].id]) achN++; }
+  document.getElementById('codexTotal').textContent = '局数 ' + S.stats.runs + ' / 累计击杀 ' + fmt(S.stats.kills)
+    + ' / 成就 ' + achN + '/' + ACH.length;
   var html = '<div class="codexGrid">';
   var ekeys = Object.keys(EDEF);
   for (var i=0;i<ekeys.length;i++){
@@ -4741,6 +4771,7 @@ function renderSettings(){
     + '<div class="toggle-row"><div class="info"><h4>' + (EN?'Particles':'粒子质量') + '</h4><p>'
       + (EN?'Low quality reduces explosions':'低画质会减少爆炸粒子，提升低端机流畅度') + '</p></div>'
       + '<button class="switch' + (S.set.quality === 'high' ? ' on' : '') + '" data-quality="1"><i></i></button></div>'
+    + rowSwitch('shakeOff', EN?'No Screen Shake':'关闭屏幕震动', '镜头不再抖动（晕动症更友好）', !!S.set.shakeOff)
     + rowSwitch('eco', EN?'Power Saver':'省电模式', '限 30fps、减少粒子', !!S.set.eco)
     + rowSwitch('hudInfo', EN?'Build HUD':'实时构筑面板', '显示 DPS、护甲与暴击', !!S.set.hudInfo)
     + rowSwitch('perf', EN?'Perf Panel':'性能面板', '设置页底部显示帧数与敌人量', !!S.set.perf)
@@ -5009,7 +5040,8 @@ function renderPicks(picks){
       : '未锁定技能 · 点此挑几张不再出现';
   }
   var rbtn = document.getElementById('btnReroll');
-  rbtn.textContent = '重抽强化 · 快捷键 4（剩 ' + G.rerolls + ' 次）';
+  /* 390 宽就换行了：原来"重抽强化 · 快捷键 4（剩 2 次）"太长，压成"重抽(键4) · 剩2" */
+  rbtn.textContent = '重抽(键4) · 剩 ' + G.rerolls;
   rbtn.disabled = G.rerolls <= 0;
   var sbtn = document.getElementById('btnSkipPick');
   if (sbtn) sbtn.textContent = '跳过 · +' + skipCoins() + ' 金币';
@@ -5077,10 +5109,15 @@ function chooseUpgrade(i){
 
 /* --- 结算 --- */
 function checkAch(){
+  var got = [];
   for (var i=0;i<ACH.length;i++){
     var a = ACH[i];
-    if (!S.ach[a.id] && a.check(S)) S.ach[a.id] = true;
+    if (!S.ach[a.id] && a.check(S)){ S.ach[a.id] = true; got.push(a.name); }
   }
+  if (!got.length) return;
+  /* 一次解锁好几个不刷屏，合并成一条 */
+  toast('成就达成 · ' + (got.length > 2 ? (got.slice(0,2).join(' / ') + ' 等 ' + got.length + ' 项') : got.join(' / ')));
+  try { sfx('level'); } catch(e){}
 }
 
 function settleRun(){
@@ -5235,6 +5272,39 @@ function gameOver(){
     var wMed = ws[Math.floor(ws.length/2)], kMed = ks[Math.floor(ks.length/2)];
     cmp.textContent = curDiffName + ' 同难度中位：第 ' + wMed + ' 波 · 击杀 ' + fmt(kMed) + '（' + others.length + ' 局）';
   } else cmp.textContent = '';
+
+  /* 本局输出 / 承伤：单独一行小字。挂在 kicker 上会挤成三行，所以放这里 */
+  var sumEl = document.getElementById('overSum');
+  if (G.runDmg || G.runTaken){
+    if (!sumEl){
+      sumEl = document.createElement('p');
+      sumEl.id = 'overSum'; sumEl.className = 'sub';
+      sumEl.style.margin = '3px 0 0'; sumEl.style.fontSize = '11px';
+      /* 死因存在时 cmp 会被挪进折叠详情里，所以固定挂在详情容器之前，四格正下方 */
+      var _dv = document.getElementById('overDetail');
+      (_dv ? _dv.parentNode : cmp.parentNode).insertBefore(sumEl, _dv || cmp.nextSibling);
+    }
+    var rRatio = (G.runDmg > 0) ? (G.runTaken / G.runDmg * 100) : 0;
+    sumEl.textContent = '本局输出 ' + kfmt(G.runDmg) + ' · 承伤 ' + kfmt(G.runTaken)
+      + (G.runTaken ? ('（占输出 ' + (rRatio >= 999 ? '999+' : Math.round(rRatio)) + '%）') : '（零承伤）');
+  } else if (sumEl) sumEl.textContent = '';
+
+  /* 结算页直接给今日任务进度：以前只有回菜单/暂停才看得到，打完一局不知道还差什么 */
+  var qEl = document.getElementById('overQuest');
+  if (!G.practice){
+    var qn = questToday(), qDone = 0;
+    for (var qi3=0; qi3<QUESTS.length; qi3++){ if (qn.paid[QUESTS[qi3].id]) qDone++; }
+    if (!qEl){
+      qEl = document.createElement('p');
+      qEl.id = 'overQuest'; qEl.className = 'sub';
+      qEl.style.margin = '3px 0 0'; qEl.style.fontSize = '11px';
+      var _dv3 = document.getElementById('overDetail');
+      (_dv3 ? _dv3.parentNode : cmp.parentNode).insertBefore(qEl, _dv3 || cmp.nextSibling);
+    }
+    qEl.textContent = qDone >= QUESTS.length
+      ? '今日任务 ' + qDone + '/' + QUESTS.length + ' · 已全部完成'
+      : '今日任务 ' + qDone + '/' + QUESTS.length + ' · 每项 +30 星核（次日刷新）';
+  } else if (qEl) qEl.textContent = '';
 
   var chart = document.getElementById('overChart');
   if (chart){
@@ -5518,6 +5588,8 @@ function onKeyDown(ev){
      放在开关类按键上会出事：按住 + 一路切到 ×10、按住 1 连选两张卡、按住 4 连刷商店把钱刷光 */
   if (!ev.repeat){
     if (k === 'p' && (G.state === 'playing' || G.state === 'paused')) togglePause();
+    /* 桌面习惯：Esc 就是暂停。以前 playing 时按 Esc 完全没反应，只能去点右上角 */
+    if (k === 'escape' && (G.state === 'playing' || G.state === 'paused')){ ev.preventDefault(); togglePause(); }
     if (k === '+' || k === '=' ) { ev.preventDefault(); cycleSpeed(1); }
     if (k === '-' ) { ev.preventDefault(); cycleSpeed(-1); }
     if (G.state === 'levelup'){
@@ -5564,9 +5636,7 @@ window.addEventListener('compositionstart', function(){
   }
 }, true);
 
-/* 触摸兼容层：iOS 12 / 老 Android WebView 没有 PointerEvent，
-   直接绑 pointerdown 会导致摇杆完全失灵（点画面没有任何反应）。
-   这里统一成 pBind()：有 PointerEvent 用指针事件，没有就退回 touch 并补齐 pointerId/clientX 字段 */
+/* 触摸兼容层：没有 PointerEvent 的 iOS 12 / 老 WebView 直接绑 pointerdown 会让摇杆失灵。pBind()：有指针就用指针，没有退回 touch 并补 pointerId/clientX。 */
 var HAS_PE = !!window.PointerEvent;
 var _PE_MAP = { pointerdown:'touchstart', pointermove:'touchmove', pointerup:'touchend', pointercancel:'touchcancel' };
 function pBind(el, type, fn){
@@ -5629,6 +5699,10 @@ document.addEventListener('visibilitychange', function(){
     keys = {};
     if (G.state === 'playing') saveCheckpoint(true, true);
     if (G.state === 'playing' && S.set.autoPause !== false) togglePause();
+    /* 关掉"自动暂停"的人后台还在跑，BGM 会一直响；把整个音频图挂起更彻底 */
+    if (AU.ctx && AU.ctx.state === 'running'){ try{ AU.ctx.suspend(); }catch(e){} }
+  } else if (!document.hidden && AU.ctx && AU.ctx.state === 'suspended'){
+    try{ AU.ctx.resume(); }catch(e){}
   }
 });
 window.addEventListener('blur', function(){
@@ -5677,6 +5751,9 @@ bind('btnOverDetail', function(){
 });
 
 function restartRun(){
+  /* 结算页的"再来一局"按钮双击会在同一帧被命中两次：第二次把刚建好的局又重置一遍 */
+  if (Date.now() - (restartRun._t || 0) < 600) return;
+  restartRun._t = Date.now();
   var wasP = !!(G && G.practice);
   startRun(false);
   if (wasP){ G.practice = true; G.wave = 19; waveStart(); toast('练习模式：不计星核与战绩'); }
@@ -5701,7 +5778,18 @@ bind('btnCopyRun', function(){
   }catch(e){ try{ window.prompt('复制下面这段战绩', txt); }catch(_){} }
 });
 bind('btnResume', togglePause);
-bind('btnHome', goHome);
+var _homeArm = 0;
+bind('btnHome', function(){
+  /* 手滑碰到就会当场结算、这局的连杀星核与进度直接落定，改成两下确认 */
+  var risky = !!(G && G.state !== 'menu' && G.state !== 'over' && (G.kills > 0 || G.time > 10));
+  if (risky && Date.now() - _homeArm > 2000){
+    _homeArm = Date.now();
+    toast('再点一次「返回主菜单」＝结算并放弃本局');
+    return;
+  }
+  _homeArm = 0;
+  goHome();
+});
 bind('btnRevive', reviveRun);
 bind('btnPause', togglePause);
 bind('btnSpeed', function(){ cycleSpeed(1); });
@@ -5957,6 +6045,10 @@ screenRoot.addEventListener('click', function(ev){
   if (setk){
     S.set[setk] = !S.set[setk];
     saveNow();
+    /* 省电模式改的是渲染分辨率，必须立刻重排画布，否则要等下一次转屏才生效 */
+    if (setk === 'eco') resize();
+    /* 用户自己拨过震动开关：之后系统级"减少动态效果"变化不再覆盖他的选择 */
+    if (setk === 'shakeOff') S.set.shakeManual = true;
     if (setk === 'bgm') if (S && S.set && !S.set.bgmSet){ S.set.bgm = true; S.set.bgmSet = true; saveNow(); }
 bgmApply();
     if (setk === 'sfx' && S.set.sfx) sfx('ui');
@@ -5975,7 +6067,7 @@ bgmApply();
     S.set.hudInfo = !S.set.hudInfo; saveNow(); renderSettings(); return;
   }
   if (t.getAttribute && t.getAttribute('data-eco')){
-    S.set.eco = !S.set.eco; saveNow(); renderSettings(); return;
+    S.set.eco = !S.set.eco; saveNow(); resize(); renderSettings(); return;
   }
   if (t.getAttribute && t.getAttribute('data-stick')){
     S.set.stick = (S.set.stick === 'fixed') ? 'float' : 'fixed';
@@ -6036,6 +6128,7 @@ document.getElementById('shopList').addEventListener('click', function(ev){
 });
 bind('btnShopGo', function(){ closeShop(); });
 bind('btnShopReroll', function(){ rerollShop(); });
+bind('btnShopAll', function(){ buyAllShop(); });
 
 document.getElementById('cards').addEventListener('click', function(ev){
   var btn = ev.target.closest ? ev.target.closest('.card') : null;
@@ -6053,7 +6146,36 @@ window.addEventListener('resize', function(){
   clearTimeout(_rzT);
   _rzT = setTimeout(resize, 160);
 });
+/* iOS：旋转后 innerWidth/innerHeight 会比 orientationchange 晚几百毫秒才更新，
+   只靠 resize 会拿到旧尺寸；这里补两次 */
+window.addEventListener('orientationchange', function(){
+  setTimeout(resize, 60);
+  setTimeout(resize, 320);
+});
+/* 地址栏收起、软键盘弹出这类只改 visualViewport 的场合，resize 不一定触发 */
+(function(){
+  var vv = window.visualViewport;
+  if (!vv || !vv.addEventListener) return;
+  var lw = Math.round(vv.width), lh = Math.round(vv.height), vt = 0;
+  vv.addEventListener('resize', function(){
+    var w = Math.round(vv.width), h = Math.round(vv.height);
+    if (Math.abs(w-lw) < 2 && Math.abs(h-lh) < 2) return;
+    lw = w; lh = h;
+    clearTimeout(vt); vt = setTimeout(resize, 220);
+  });
+})();
 loadSave();
+/* 系统级的"减少动态效果"开着时把屏幕震动关掉；用户自己动过开关就不再覆盖 */
+try {
+  var _rmq = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (_rmq && _rmq.addEventListener){
+    _rmq.addEventListener('change', function(ev){
+      if (S.set.shakeManual) return;
+      S.set.shakeOff = !!ev.matches;
+      saveNow();
+    });
+  }
+} catch(e){}
 bgmApply();
 G = newGame();
 G.state = 'menu';
@@ -6067,11 +6189,21 @@ if ((S.autoResume || LIVE) && S.checkpoint){
 }
 
 var last = 0;
+/* 非 playing 状态下画面是静止的，节流用 */
+var _lastDk = '', _idleDr = 0, _needDraw = 1;
 var PAD = {x:0, y:0, pausePrev:false};
 
 /* 没有手柄时每帧调 getGamepads() 是白花的（部分机型还要做一次内部枚举），
    用连接事件维护开关，只有真插过手柄才每帧轮询 */
 var PAD_ON = false;
+/* 另一个窗口/标签页也在玩时，两边都会写同一份存档（后写的覆盖先写的）。提示一次就好，不去抢 */
+window.addEventListener('storage', function(e){
+  if (!e || e.key !== SAVE_KEY) return;
+  if (!G || (G.state !== 'playing' && G.state !== 'paused' && G.state !== 'shop' && G.state !== 'levelup')) return;
+  if (window.__multiTold) return;
+  window.__multiTold = 1;
+  toast('另一个窗口也在玩 · 存档会互相覆盖，建议只留一个');
+});
 window.addEventListener('gamepadconnected', function(){ PAD_ON = true; });
 window.addEventListener('gamepaddisconnected', function(){
   PAD_ON = false; PAD.x = 0; PAD.y = 0; PAD.pausePrev = false;
@@ -6156,7 +6288,7 @@ function frame(ts){
     if (rawDt > 0.08){ G.lowFpsT = (G.lowFpsT || 0) + rawDt; }
     else G.lowFpsT = 0;
     var nowR = Date.now();
-    if ((G.lowFpsT || 0) > 5 && !G.rescuing && (!S.lastRescue || nowR - S.lastRescue > 30000)){
+    if ((G.lowFpsT || 0) > 3.5 && !G.rescuing && (!S.lastRescue || nowR - S.lastRescue > 30000)){
       G.rescuing = true;
       G.lowFpsT = 0;
       saveCheckpoint();
@@ -6188,18 +6320,26 @@ function frame(ts){
   if (sp === 1){
     try { update(dt); } catch(err){ if (!window.__upErr){ window.__upErr = 1; toast('运行异常：' + (err && err.message || err)); console.error(err); } }
   } else {
-    var total = dt * sp, guard = 0;
-    var step = Math.min(0.05, total);
+    /* 高倍速步长要粗：10x 时 0.05 步长要 10 次 update，14ms 预算只够 7 次→实际只有 7 倍。倍速越高步长越大，总步数封顶 16。 */
+    var stepMax = sp >= 8 ? 0.1 : (sp >= 5 ? 0.08 : 0.05);
+    var total = Math.min(dt * sp, 0.6), guard = 0;
+    var step = Math.min(stepMax, total);
     var t0 = PNow();
-    while (total > 0.0005 && guard++ < 12){
-      if (t0 && (PNow() - t0) > 14) break;
+    var budget = sp >= 5 ? 20 : 14;
+    while (total > 0.0005 && guard++ < 16){
+      if (t0 && (PNow() - t0) > budget) break;
       try { update(step); } catch(err){ if (!window.__upErr){ window.__upErr = 1; toast('运行异常：' + (err && err.message || err)); console.error(err); } }
       total -= step;
       if (G.state !== 'playing') break;
-      step = Math.min(step, total);
+      step = Math.min(stepMax, total);
     }
   }
-  try { draw(); } catch(err){ if (!window.__drErr){ window.__drErr = 1; console.error(err); } }
+  /* 面板打开时游戏静止，全屏重绘白烧像素（低端机还连带重算 backdrop-filter）。状态切换/重排/每 8 帧兜底各画一次，其余帧留上一帧。 */
+  var dk = G.state + '|' + (G.paused ? 1 : 0) + '|' + VW + 'x' + VH + '|' + DPR + '|' + (S.set.hudInfo ? 1 : 0) + '|' + (S.set.quality || '') + '|' + (AUTOQ.lv || 0);
+  if (G.state === 'playing' || _needDraw || dk !== _lastDk || (++_idleDr & 7) === 0){
+    _lastDk = dk; _needDraw = 0; _idleDr = 0;
+    try { draw(); } catch(err){ if (!window.__drErr){ window.__drErr = 1; console.error(err); } }
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
