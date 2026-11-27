@@ -226,8 +226,8 @@ function tx(v){
 function localizeData(){
   if (!EN_LANG) return;
   ensureEN();
-  function ap(arr, key){ var t = EN_DATA[key] || {}; for (var i=0;i<arr.length;i++){ var d = t[arr[i].id]; if (!d) continue; if (Array.isArray(d)){ arr[i].name = d[0]; if (d[1]) arr[i].desc = d[1]; } } }
-  ap(UPG,'upg'); ap(EVO,'evo'); ap(MODS,'mods'); ap(SHOP_POOL,'shop'); ap(META,'meta'); ap(ACH,'ach');
+  function ap(arr, key, field){ var t = EN_DATA[key] || {}; for (var i=0;i<arr.length;i++){ var d = t[arr[i].id]; if (!d) continue; if (Array.isArray(d)){ arr[i].name = d[0]; if (d[1]) arr[i][field || 'desc'] = d[1]; } } }
+  ap(UPG,'upg'); ap(EVO,'evo'); ap(MODS,'mods','tip'); ap(SHOP_POOL,'shop'); ap(META,'meta'); ap(ACH,'ach');
   var ch = EN_DATA.chars; for (var ck in CHARS){ if (ch[ck]){ CHARS[ck].name = ch[ck][0]; CHARS[ck].desc = ch[ck][1]; } }
   for (var dk in DIFF){ if (EN_DATA.diff[dk]) DIFF[dk].name = EN_DATA.diff[dk]; }
   for (var bk=0; bk<BDEF.length; bk++){ var bd = EN_DATA.bdef[BDEF[bk].key]; if (bd){ BDEF[bk].name = bd[0]; BDEF[bk].desc = bd[1]; } }
@@ -655,6 +655,16 @@ function bgmApply(){
 var SRC_NAME = {swarm:'虫群', grunt:'爬行者', runner:'疾行虫', tank:'重甲兽', shooter:'吐酸者', elite:'精英', boss:'首领', hunter:'猎手', zone:'毒圈', hold:'发生器'};
 
 /* ================= 工具 ================= */
+/* 死因是存档里的中文字符串，英文界面显示时做一次反查 */
+var DC_EN = {'虫群':'Swarm Bug','爬行者':'Crawler','疾行虫':'Runner','重甲兽':'Heavy Brute','吐酸者':'Acid Spitter',
+  '精英':'Elite','首领':'Boss','猎手':'Hunter','毒圈':'Shrinking Zone','发生器':'Generator','未知':'Unknown'};
+function dcEN(v){
+  if (!v) return v;
+  var m = v.match(/首领「([^」]+)」(.*)/);
+  if (m){ var tail = m[2] ? m[2].replace(/首领/,'Boss') : ''; return 'Boss "' + m[1] + '"' + tail; }
+  return DC_EN[v] || v;
+}
+
 function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
 /* 金币内部允许小数（异变倍率会产出 1.4 枚），显示与花钱判断统一向下取整 */
 function coinNow(){ var c = G && G.coins ? G.coins : 0; return Math.floor(c + 1e-9); }
@@ -3419,13 +3429,29 @@ function enemySprite(e, col, eGlow){
   c2.translate(szD*0.5, szD*0.5);
   c2.scale(ENK, ENK);
   try { paintEnemy(c2, e, col, eGlow); } catch(err){ return null; }
-  if (_sprC.size >= 96){ _sprC.delete(_sprC.keys().next().value); }   /* 淘汰最久未用，避免整表清空后一轮重绘峰值 */
+  if (_sprC.size >= 96){
+    /* 淘汰最久未用，但大精灵（首领/精英）重画一次要几十条路径，优先留下：
+       先看队首若干张里最小的一张，小图重建便宜，换掉它更划算 */
+    var it = _sprC.keys(), kn = it.next(), victim = kn.value, vSz = _sprC.get(victim).size;
+    for (var pi=0; pi<8; pi++){
+      var nx = it.next(); if (nx.done) break;
+      var sz = _sprC.get(nx.value).size;
+      if (sz < vSz){ victim = nx.value; vSz = sz; }
+    }
+    _sprC.delete(victim);
+  }
   got = {c: cn, size: szD};
   _sprC.set(key, got);
   return got;
 }
 
 var _diN = 0;   /* 本帧敌方精灵 drawImage 次数，性能面板用 */
+/* 精灵缓存近似占用：每张按 size²×4 字节算，首领大图能占几 MB，光看张数看不出来 */
+function sprMem(){
+  var b = 0;
+  _sprC.forEach(function(v){ b += v.size * v.size * 4; });
+  return b < 1048576 ? (Math.round(b/1024) + 'KB') : ((b/1048576).toFixed(1) + 'MB');
+}
 
 function drawEnemy(e){
   /* 矩阵直接算到位：相机 × 平移 × 旋转，一次 setTransform 取代原本的
@@ -4697,23 +4723,31 @@ function renderCodex(){
   var modA = [], modB = [];
   for (var mi=0; mi<MODS.length; mi++){
     var md = MODS[mi], seen = S.modSeen[md.id] || 0;
-    var card = cardHTML('codex', md.name, md.tip + (seen ? ('　遭遇 ' + seen + ' 次 · 最高第 ' + (S.modBest[md.id] || 0) + ' 波') : ''),
+    var seenTxt = seen ? (EN_LANG ? ('　Seen ' + seen + ' · best wave ' + (S.modBest[md.id] || 0))
+                                  : ('　遭遇 ' + seen + ' 次 · 最高第 ' + (S.modBest[md.id] || 0) + ' 波')) : '';
+    var card = cardHTML('codex', md.name, md.tip + seenTxt,
       {col: seen ? P.ink : 'rgba(234,255,248,.5)'});
     if (seen) modA.push(card); else modB.push(card);
   }
-  mh += '<p class="sub" style="font-size:11px;margin:8px 0 0">已遭遇 ' + modA.length + ' / ' + MODS.length + '　·　第 6 波起出现</p>';
+  mh += '<p class="sub" style="font-size:11px;margin:8px 0 0">' + (EN_LANG
+      ? ('Seen ' + modA.length + ' / ' + MODS.length + '　·　starts at wave 6')
+      : ('已遭遇 ' + modA.length + ' / ' + MODS.length + '　·　第 6 波起出现')) + '</p>';
   if (modA.length) mh += '<div class="codexGrid">' + modA.join('') + '</div>';
   if (modB.length){
-    mh += '<p class="sub" style="font-size:11px;margin:10px 0 0;opacity:.6">未遭遇 ' + modB.length + ' 种</p>'
+    mh += '<p class="sub" style="font-size:11px;margin:10px 0 0;opacity:.6">' + (EN_LANG
+      ? (modB.length + ' not yet seen')
+      : ('未遭遇 ' + modB.length + ' 种')) + '</p>'
       + '<div class="codexGrid">' + modB.join('') + '</div>';
   }
   var mbox = document.getElementById('modList');
   if (mbox) mbox.innerHTML = mh;
 
-  var bh = cardHTML('row', '首领图鉴', '击杀次数与最快击杀时间', {col: '#e8c87c'});
+  var bh = cardHTML('row', EN_LANG ? 'Boss Codex' : '首领图鉴', EN_LANG ? 'Kills and fastest kill time' : '击杀次数与最快击杀时间', {col: '#e8c87c'});
   for (var bi=0; bi<BDEF.length; bi++){
     var bd = BDEF[bi], rec = S.bossBook[bd.key];
-    bh += cardHTML('row', bd.name, rec ? ('击杀 ' + rec.kills + ' 次 · 最快 ' + rec.best + ' 秒') : '尚未击杀',
+    bh += cardHTML('row', bd.name, rec
+      ? (EN_LANG ? ('Killed ' + rec.kills + ' · fastest ' + rec.best + 's') : ('击杀 ' + rec.kills + ' 次 · 最快 ' + rec.best + ' 秒'))
+      : (EN_LANG ? 'Not defeated yet' : '尚未击杀'),
       {col: rec ? P.ink : 'rgba(234,255,248,.5)'});
   }
   var bbox = document.getElementById('bossList');
@@ -4721,11 +4755,14 @@ function renderCodex(){
 
   var ps = S.pickStats || {};
   var locks = S.set.lockUpg || {};
-  var ph = '<p class="sub" style="font-size:11px;margin:8px 0 0">点卡片可锁定：锁定的卡不再出现在升级选项里</p><div class="codexGrid">';
+  var ph = '<p class="sub" style="font-size:11px;margin:8px 0 0">' + (EN_LANG
+    ? 'Tap a card to lock it — locked cards stop appearing in level-ups'
+    : '点卡片可锁定：锁定的卡不再出现在升级选项里') + '</p><div class="codexGrid">';
   for (var ui=0; ui<UPG.length; ui++){
     var u = UPG[ui], un = ps[u.id] || 0, lk = !!locks[u.id];
-    ph += cardHTML('codex', u.name + (lk ? ' <span style="color:#c8a24e;font-size:10.5px;font-weight:400">已锁</span>' : ''),
-      (un ? ('选取 ' + un + ' 次') : '未选过') + (u.max ? (' · 上限 ' + u.max) : ''),
+    ph += cardHTML('codex', u.name + (lk ? ' <span style="color:#c8a24e;font-size:10.5px;font-weight:400">' + (EN_LANG ? 'LOCKED' : '已锁') + '</span>' : ''),
+      (un ? (EN_LANG ? ('Picked ' + un) : ('选取 ' + un + ' 次')) : (EN_LANG ? 'Never picked' : '未选过'))
+      + (u.max ? (EN_LANG ? (' · max ' + u.max) : (' · 上限 ' + u.max)) : ''),
       {data: ' data-lockupg="' + u.id + '"', style: 'cursor:pointer' + (lk ? ';opacity:.55' : '')});
   }
   for (var ej=0; ej<EVO.length; ej++){
@@ -4736,7 +4773,7 @@ function renderCodex(){
       for (var un2=0; un2<UPG.length; un2++) if (UPG[un2].id === nmn) nmn = UPG[un2].name;
       needTxt.push(nmn + '×' + ev2.req);
     }
-    ph += cardHTML('codex', '进化 · ' + ev2.name, needTxt.join(' + '),
+    ph += cardHTML('codex', (EN_LANG ? 'Evolved · ' : '进化 · ') + ev2.name, needTxt.join(' + '),
       {col: '#e8c87c', style: done2 ? '' : 'opacity:.55'});
   }
   ph += '</div>';
@@ -4746,7 +4783,7 @@ function renderCodex(){
   var ah = '';
   for (var j=0;j<ACH.length;j++){
     var a = ACH[j], done = !!S.ach[a.id];
-    ah += cardHTML('ach', a.name, a.desc + (done ? '　已达成' : ''), {done: done});
+    ah += cardHTML('ach', a.name, a.desc + (done ? (EN_LANG ? '　Unlocked' : '　已达成') : ''), {done: done});
   }
   document.getElementById('achList').innerHTML = ah;
 }
@@ -4856,7 +4893,7 @@ var fpsTick = setInterval(function(){
       + ' · 粒子 ' + (G && G.parts ? G.parts.length : 0)
       + ' · 敌人 ' + (G && G.enemies ? G.enemies.length : 0)
       + ' · 弹幕 ' + (G && G.ebullets ? G.ebullets.length : 0)
-      + ' · 精灵 ' + _sprC.size + '/96 · 绘制 ' + _diN
+      + ' · 精灵 ' + _sprC.size + '/96 · 绘制 ' + _diN + ' · 缓存 ' + sprMem()
       + ' · ' + q + (G && G.slowNote ? (' · ' + G.slowNote) : '');
   } else {
     el.textContent = 'FPS ' + Math.round(G && G.fps ? G.fps : 0) + ' · 画质 ' + q;
@@ -5352,7 +5389,7 @@ function gameOver(){
         bars += '<i title="第 ' + hd2.w + ' 波 · DPS ' + fmt(hd2.dps) + (hd2.mods && hd2.mods.length ? ' · ' + hd2.mods.join('/') : '') + '"'
              + ' style="flex:1;min-width:0;height:' + Math.max(6, Math.round(hd2.dps/mx*40)) + 'px;background:rgba(200,162,78,.55);border-radius:2px"></i>';
       }
-      chart.innerHTML = '<div style="font-size:11px;opacity:.6;margin-bottom:3px">每波 DPS</div>'
+      chart.innerHTML = '<div style="font-size:11px;opacity:.6;margin-bottom:3px">' + (EN_LANG ? 'DPS per Wave' : '每波 DPS') + '</div>'
         + '<div style="display:flex;align-items:flex-end;gap:2px;height:40px">' + bars + '</div>';
     } else {
       chart.innerHTML = '';
@@ -5375,16 +5412,17 @@ function gameOver(){
         var col2 = d3 >= 0.6 ? P.am : (d3 >= 0.4 ? P.am : P.red);
         segs2 += '<i style="flex:1;min-width:0;height:10px;background:' + col2 + ';opacity:.85"></i>';
       }
-      var cap2 = '第 1 → ' + G.wave + ' 波';
+      var cap2 = EN_LANG ? ('Wave 1 → ' + G.wave) : ('第 1 → ' + G.wave + ' 波');
       if (crashW){
         var cmn = '';
         for (var tc=0; tc<hh.length; tc++){
           if (hh[tc].w === crashW && hh[tc].mods && hh[tc].mods.length){ cmn = hh[tc].mods.slice(0,2).join('/'); break; }
         }
-        cap2 += ' · 第 ' + crashW + ' 波开始崩盘' + (cmn ? '（异变 ' + cmn + '）' : '');
+        cap2 += EN_LANG ? (' · DPS collapsed at wave ' + crashW + (cmn ? ' (' + cmn + ')' : ''))
+                        : (' · 第 ' + crashW + ' 波开始崩盘' + (cmn ? '（异变 ' + cmn + '）' : ''));
       }
-      else cap2 += ' · 全程输出稳定';
-      tl.innerHTML = '<div style="font-size:11px;opacity:.6;margin-bottom:3px">战况 · ' + cap2 + '</div>'
+      else cap2 += EN_LANG ? ' · steady throughout' : ' · 全程输出稳定';
+      tl.innerHTML = '<div style="font-size:11px;opacity:.6;margin-bottom:3px">' + (EN_LANG ? 'Run · ' : '战况 · ') + cap2 + '</div>'
         + '<div style="display:flex;align-items:flex-end;gap:1px;height:10px">' + segs2 + '</div>';
     } else tl.innerHTML = '';
   }
@@ -5801,6 +5839,7 @@ function makeShareCard(){
   cv.width = W; cv.height = H;
   var c = cv.getContext('2d');
   var p = G.player;
+  var L = function(zh, en){ return EN_LANG ? en : zh; };
   c.fillStyle = '#12100c'; c.fillRect(0,0,W,H);
   var grd = c.createLinearGradient(0,0,W,H);
   grd.addColorStop(0,'#0e1a1f'); grd.addColorStop(1,'#12100c');
@@ -5811,16 +5850,16 @@ function makeShareCard(){
   c.fillStyle = P.am;
   c.beginPath(); c.moveTo(90,86); c.lineTo(112,124); c.lineTo(90,152); c.lineTo(68,124); c.closePath(); c.fill();
   c.font = '600 34px ' + FFSANS;
-  c.fillStyle = P.ink; c.fillText('怪潮幸存者', 132, 118);
+  c.fillStyle = P.ink; c.fillText(L('怪潮幸存者','HORDE Survivor'), 132, 118);
   c.font = '500 22px ' + FFSANS;
-  c.fillStyle = 'rgba(234,223,196,.7)'; c.fillText('本局战报', 132, 150);
+  c.fillStyle = 'rgba(234,223,196,.7)'; c.fillText(L('本局战报','Run Report'), 132, 150);
 
   var badges = [];
-  if (S.best && G.wave >= S.best.wave && G.wave > 0) badges.push('历史最高波次');
+  if (S.best && G.wave >= S.best.wave && G.wave > 0) badges.push(L('历史最高波次','Personal Best Wave'));
   var bcnt = 0;
   for (var bk in S.bossBook) bcnt += S.bossBook[bk].kills || 0;
-  if (bcnt > 0) badges.push('累计首领击杀 ' + bcnt);
-  if (G.cycle > 1) badges.push('第 ' + G.cycle + ' 周目');
+  if (bcnt > 0) badges.push(L('累计首领击杀 ','Bosses slain ') + bcnt);
+  if (G.cycle > 1) badges.push(L('第 ' + G.cycle + ' 周目','Cycle ' + G.cycle));
   if (G.daily) badges.push('每日挑战');
   var bxx = 56, byy = 186;
   c.font = '600 18px ' + FFSANS;
@@ -5834,7 +5873,7 @@ function makeShareCard(){
     c.fillText(badges[bi2], bxx + 12, byy + 21);
     bxx += tw + 10;
   }
-  var bigs = [[String(G.wave),'波次'],[String(p.level),'等级'],[fmt(G.kills),'击杀'],[String(Math.floor(G.time))+'s','存活']];
+  var bigs = [[String(G.wave), L('波次','Wave')],[String(p.level), L('等级','Level')],[fmt(G.kills), L('击杀','Kills')],[String(Math.floor(G.time))+'s', L('存活','Survived')]];
   for (var i=0;i<4;i++){
     var bx = 56 + i*164, by = 240;
     c.fillStyle = 'rgba(200,162,78,.06)'; c.fillRect(bx,by,148,132);
@@ -5844,15 +5883,16 @@ function makeShareCard(){
     c.fillText(bigs[i][1], bx+18, by+108);
   }
   var lines = [];
-  lines.push('难度 · ' + ((G.diff && G.diff.name) || '普通') + ((G.cycle||1) > 1 ? ' · 第' + G.cycle + '周目' : ''));
-  lines.push('角色 · ' + ((CHARS[S.char] && CHARS[S.char].name) || '先锋'));
-  lines.push('死因 · ' + (G.deathCause || '—'));
+  lines.push(L('难度 · ','Difficulty · ') + ((G.diff && G.diff.name) || L('普通','Normal'))
+    + ((G.cycle||1) > 1 ? (L(' · 第',' · Cycle ') + G.cycle + L('周目','')) : ''));
+  lines.push(L('角色 · ','Survivor · ') + ((CHARS[S.char] && CHARS[S.char].name) || L('先锋','Vanguard')));
+  lines.push(L('死因 · ','Cause · ') + (EN_LANG ? dcEN(G.deathCause) : G.deathCause) || '—');
   var evos = [], schs = [];
   for (var eid in G.evoDone) if (G.evoDone[eid]) for (var j=0;j<EVO.length;j++) if (EVO[j].id === eid) evos.push(EVO[j].name);
   for (var sk in G.schoolDone) if (G.schoolDone[sk] && SCHOOLS[sk]) schs.push(SCHOOLS[sk].title);
-  if (evos.length) lines.push('进化 · ' + evos.join(' / '));
-  if (schs.length) lines.push('质变 · ' + schs.join(' / '));
-  if (G.mods.length) lines.push('异变 · ' + G.mods.length + ' 条');
+  if (evos.length) lines.push(L('进化 · ','Evolved · ') + evos.join(' / '));
+  if (schs.length) lines.push(L('质变 · ','Ascended · ') + schs.join(' / '));
+  if (G.mods.length) lines.push(L('异变 · ' + G.mods.length + ' 条','Mutations · ' + G.mods.length));
   c.font = '500 24px ' + FFSANS;
   for (var li=0; li<lines.length; li++){
     c.fillStyle = li === 0 ? 'rgba(234,255,248,.88)' : 'rgba(234,223,196,.6)';
@@ -5861,20 +5901,20 @@ function makeShareCard(){
   c.strokeStyle = 'rgba(200,162,78,.18)'; c.lineWidth = 1;
   c.beginPath(); c.moveTo(56, 730); c.lineTo(W-56, 730); c.stroke();
   c.font = '500 22px ' + FFSANS; c.fillStyle = 'rgba(234,255,248,.5)';
-  c.fillText('星核 +' + (G.lastCore || 0), 58, 780);
+  c.fillText(L('星核 +','Cores +') + (G.lastCore || 0), 58, 780);
   var d = new Date();
   c.fillText((d.getFullYear()) + '.' + ('0'+(d.getMonth()+1)).slice(-2) + '.' + ('0'+d.getDate()).slice(-2), 58, 822);
   c.font = '700 26px ' + FFSANS; c.fillStyle = P.am;
   c.fillText('fornow330.github.io/cutting', 58, 940);
   c.font = '500 20px ' + FFSANS; c.fillStyle = 'rgba(234,223,196,.45)';
-  c.fillText('割草 · 塔防 · 无限波次', 58, 978);
+  c.fillText(L('割草 · 塔防 · 无限波次','Horde · Tower Defense · Endless Waves'), 58, 978);
 
   var url = cv.toDataURL('image/png');
   var ov = document.createElement('div');
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(4,8,10,.92);z-index:99;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:18px';
   ov.innerHTML = '<img src="' + url + '" style="max-width:92%;max-height:74%;border-radius:10px;border:1px solid rgba(200,162,78,.2)">'
-    + '<a download="怪潮战绩.png" href="' + url + '" style="display:inline-block;padding:12px 22px;border-radius:8px;background:#c8a24e;color:#1c1710;font:600 15px sans-serif;text-decoration:none">保存战绩卡</a>'
-    + '<button style="padding:10px 18px;border-radius:8px;border:1px solid rgba(234,223,196,.3);background:transparent;color:#eadfc4;font:500 14px sans-serif">关闭</button>';
+    + '<a download="' + L('怪潮战绩.png','horde-run.png') + '" href="' + url + '" style="display:inline-block;padding:12px 22px;border-radius:8px;background:#c8a24e;color:#1c1710;font:600 15px sans-serif;text-decoration:none">' + L('保存战绩卡','Save Card') + '</a>'
+    + '<button style="padding:10px 18px;border-radius:8px;border:1px solid rgba(234,223,196,.3);background:transparent;color:#eadfc4;font:500 14px sans-serif">' + L('关闭','Close') + '</button>';
   ov.querySelector('button').addEventListener('click', function(){ ov.remove(); });
   document.body.appendChild(ov);
 }
@@ -5882,20 +5922,29 @@ bind('btnShareCard', function(){ makeShareCard(); });
 bind('btnCopyRun', function(){
   var g = G; if (!g || !g.player) return;
   var dl = (DIFF[g.diff && g.diff.key] || DIFF.normal);
-  var txt = '怪潮幸存者 · ' + (dl.name || '普通')
-    + ' · 第 ' + g.wave + ' 波'
-    + ' · Lv ' + g.player.level
-    + ' · 击杀 ' + g.kills
-    + ' · 存活 ' + Math.floor(g.time) + ' 秒'
-    + (g.comboBest ? ' · 最高连杀 ' + g.comboBest : '')
-    + ((g.cycle || 1) > 1 ? ' · 第 ' + g.cycle + ' 周目' : '')
-    + (g.mods && g.mods.length ? ' · 异变 ' + g.mods.length + ' 条' : '');
+  var txt = EN_LANG
+    ? ('HORDE Survivor · ' + (dl.name || 'Normal')
+      + ' · Wave ' + g.wave
+      + ' · Lv ' + g.player.level
+      + ' · ' + g.kills + ' kills'
+      + ' · survived ' + Math.floor(g.time) + 's'
+      + (g.comboBest ? ' · best streak ' + g.comboBest : '')
+      + ((g.cycle || 1) > 1 ? ' · cycle ' + g.cycle : '')
+      + (g.mods && g.mods.length ? ' · ' + g.mods.length + ' mutations' : ''))
+    : ('怪潮幸存者 · ' + (dl.name || '普通')
+      + ' · 第 ' + g.wave + ' 波'
+      + ' · Lv ' + g.player.level
+      + ' · 击杀 ' + g.kills
+      + ' · 存活 ' + Math.floor(g.time) + ' 秒'
+      + (g.comboBest ? ' · 最高连杀 ' + g.comboBest : '')
+      + ((g.cycle || 1) > 1 ? ' · 第 ' + g.cycle + ' 周目' : '')
+      + (g.mods && g.mods.length ? ' · 异变 ' + g.mods.length + ' 条' : ''));
   try{
     if (navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(txt).then(function(){ toast('战绩已复制，可直接粘贴分享'); },
-        function(){ window.prompt('复制下面这段战绩', txt); });
-    } else window.prompt('复制下面这段战绩', txt);
-  }catch(e){ try{ window.prompt('复制下面这段战绩', txt); }catch(_){} }
+      navigator.clipboard.writeText(txt).then(function(){ toast(EN_LANG ? 'Run copied — paste anywhere' : '战绩已复制，可直接粘贴分享'); },
+        function(){ window.prompt(EN_LANG ? 'Copy this run' : '复制下面这段战绩', txt); });
+    } else window.prompt(EN_LANG ? 'Copy this run' : '复制下面这段战绩', txt);
+  }catch(e){ try{ window.prompt(EN_LANG ? 'Copy this run' : '复制下面这段战绩', txt); }catch(_){} }
 });
 bind('btnResume', togglePause);
 var _homeArm = 0;
