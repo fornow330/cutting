@@ -202,6 +202,10 @@ function tx(v){
        .replace(/^等级\s*(\d+)$/, 'Level $1')
        .replace(/^下一波\s*([\d.]+)s?/, 'Next wave $1s')
        .replace(/^Lv\s*(\d+)\s*/, 'Lv $1 ')
+       .replace(/^等级\s*(\d+)\s*\/\s*(\d+)/, 'Lv $1 / $2')
+       .replace(/第\s*(\d+)\s*周目上限/g, 'cycle $1 cap')
+       .replace(/^共\s*(\d+)\s*局\s*·\s*平均\s*(\d+)\s*波/, '$1 runs · avg wave $2')
+       .replace(/^射速\s*([\d.]+)/, 'AS $1')
        .replace(/场上\s*/g, 'alive ')
        .replace(/减伤\s*/g, 'DR ')
        .replace(/暴击\s*/g, 'Crit ')
@@ -226,7 +230,7 @@ function tx(v){
 function localizeData(){
   if (!EN_LANG) return;
   ensureEN();
-  function ap(arr, key, field){ var t = EN_DATA[key] || {}; for (var i=0;i<arr.length;i++){ var d = t[arr[i].id]; if (!d) continue; if (Array.isArray(d)){ arr[i].name = d[0]; if (d[1]) arr[i][field || 'desc'] = d[1]; } } }
+  function ap(arr, key, field){ var t = EN_DATA[key] || {}; for (var i=0;i<arr.length;i++){ var d = t[arr[i].id]; if (!d) continue; if (Array.isArray(d)){ if (!arr[i]._zh) arr[i]._zh = arr[i].name; arr[i].name = d[0]; if (d[1]) arr[i][field || 'desc'] = d[1]; } } }
   ap(UPG,'upg'); ap(EVO,'evo'); ap(MODS,'mods','tip'); ap(SHOP_POOL,'shop'); ap(META,'meta'); ap(ACH,'ach');
   var ch = EN_DATA.chars; for (var ck in CHARS){ if (ch[ck]){ CHARS[ck].name = ch[ck][0]; CHARS[ck].desc = ch[ck][1]; } }
   for (var dk in DIFF){ if (EN_DATA.diff[dk]) DIFF[dk].name = EN_DATA.diff[dk]; }
@@ -350,42 +354,42 @@ var SCHOOLS = {
 };
 
 var MODS = [
-  {id:'fog',   name:'雾潮',    tip:'视野压缩，怪物从暗处涌来'},
-  {id:'gem',   name:'结晶雨',  tip:'晶体成片落下，本波升级飞快'},
-  {id:'air',   name:'补给空投', tip:'怪物变少，补给与金币翻倍'},
-  {id:'elite', name:'精英潮',  tip:'只出精英与重甲，击杀额外星核'},
-  {id:'hunter',name:'追猎者',  tip:'一只杀不死的猎手持续逼近'},
-  {id:'zone',  name:'收缩毒圈', tip:'安全区不断缩小，出界持续掉血'},
-  {id:'hold',  name:'战线守护', tip:'守住中央发生器，离场超过 5 秒即失守'},
-  {id:'storm', name:'静电风暴', tip:'射速 +40%、射程 -30%、弹道随机偏转'},
-  {id:'reso',  name:'同系共鸣', tip:'某一系强化权重翻倍，质变只需 2 张'},
-  {id:'twin',  name:'双生首领', tip:'两只弱化首领同时压场'},
-  {id:'bloodmoon', name:'血月', tip:'敌人伤害 +40%，金币 ×3'},
-  {id:'swift', name:'疾行潮',  tip:'敌人移速 +35%，经验 ×1.6'},
-  {id:'meteor',name:'陨石雨',  tip:'陨石连续砸落，命中范围敌人'},
-  {id:'magnet',name:'磁力过载', tip:'拾取范围 ×3，晶体落地即吸附'},
-  {id:'split', name:'分裂体',  tip:'普通怪死亡 30% 分裂成两只小虫'},
-  {id:'hunt',  name:'精英围猎', tip:'每 7 秒刷出一只强化精英'},
-  {id:'rush',  name:'铁壁潮',  tip:'敌人数量减少，血量 +60%'},
-  {id:'greed', name:'贪欲',    tip:'金币 ×2，敌人血量 +25%'},
-  {id:'barrage', name:'弹幕压制', tip:'敌方远程射速 +70%、弹速 +25%'},
-  {id:'gravity', name:'重力井',  tip:'你的移速 -20%，但攻击力 +35%'},
-  {id:'echo',   name:'回响弹',  tip:'每发子弹有 20% 概率额外射出一发'},
-  {id:'thunder',name:'链电',    tip:'每 2.2 秒落下一道闪电，连锁 3 个目标'},
-  {id:'famine', name:'饥荒',    tip:'经验 -40%，金币 +40%'},
-  {id:'brittle',name:'脆甲',    tip:'护甲 -35%，移速 +15%、射速 +10%'},
-  {id:'phantom',name:'虚影',    tip:'每 6 秒进入 0.9 秒无敌'},
-  {id:'siege',  name:'围城',    tip:'敌人数量 +45%，但血量 -15%'},
-  {id:'armored', name:'铁甲潮',  tip:'所有敌人受到的伤害 -25%'},
-  {id:'frenzy',  name:'濒死狂化', tip:'敌人血量低于 35% 时移速 +50%'},
-  {id:'sniper',  name:'狙击手',  tip:'远程敌人弹速 +60%、伤害 +35%'},
-  {id:'swarmlord',name:'虫群领主', tip:'每波额外刷出 6 只小怪'},
-  {id:'noheal',  name:'绝疗',    tip:'治疗掉落 -70%，所有回血 -40%'},
-  {id:'bossrage',name:'首领狂怒', tip:'首领攻速 +25%、伤害 +25%'},
-  {id:'pact',    name:'血债',    tip:'伤害 +50%，生命上限 -20%'},
-  {id:'shadow',  name:'疾影',    tip:'移速 +35%，护甲 -50%'},
-  {id:'greedpact',name:'贪婪契约', tip:'金币 ×3，经验 -35%'},
-  {id:'allin',   name:'孤注',    tip:'射速 +60%，受到的伤害 +30%'}
+  {id:'fog',   name:'雾潮',    tip:'视野压缩，怪物从暗处涌来', k:'down'},
+  {id:'gem',   name:'结晶雨',  tip:'晶体成片落下，本波升级飞快', k:'up'},
+  {id:'air',   name:'补给空投', tip:'怪物变少，补给与金币翻倍', k:'mix'},
+  {id:'elite', name:'精英潮',  tip:'只出精英与重甲，击杀额外星核', k:'mix'},
+  {id:'hunter',name:'追猎者',  tip:'一只杀不死的猎手持续逼近', k:'down'},
+  {id:'zone',  name:'收缩毒圈', tip:'安全区不断缩小，出界持续掉血', k:'down'},
+  {id:'hold',  name:'战线守护', tip:'守住中央发生器，离场超过 5 秒即失守', k:'mix'},
+  {id:'storm', name:'静电风暴', tip:'射速 +40%、射程 -30%、弹道随机偏转', k:'mix'},
+  {id:'reso',  name:'同系共鸣', tip:'某一系强化权重翻倍，质变只需 2 张', k:'up'},
+  {id:'twin',  name:'双生首领', tip:'两只弱化首领同时压场', k:'down'},
+  {id:'bloodmoon', name:'血月', tip:'敌人伤害 +40%，金币 ×3', k:'mix'},
+  {id:'swift', name:'疾行潮',  tip:'敌人移速 +35%，经验 ×1.6', k:'mix'},
+  {id:'meteor',name:'陨石雨',  tip:'陨石连续砸落，命中范围敌人', k:'up'},
+  {id:'magnet',name:'磁力过载', tip:'拾取范围 ×3，晶体落地即吸附', k:'up'},
+  {id:'split', name:'分裂体',  tip:'普通怪死亡 30% 分裂成两只小虫', k:'down'},
+  {id:'hunt',  name:'精英围猎', tip:'每 7 秒刷出一只强化精英', k:'mix'},
+  {id:'rush',  name:'铁壁潮',  tip:'敌人数量减少，血量 +60%', k:'mix'},
+  {id:'greed', name:'贪欲',    tip:'金币 ×2，敌人血量 +25%', k:'mix'},
+  {id:'barrage', name:'弹幕压制', tip:'敌方远程射速 +70%、弹速 +25%', k:'down'},
+  {id:'gravity', name:'重力井',  tip:'你的移速 -20%，但攻击力 +35%', k:'mix'},
+  {id:'echo',   name:'回响弹',  tip:'每发子弹有 20% 概率额外射出一发', k:'up'},
+  {id:'thunder',name:'链电',    tip:'每 2.2 秒落下一道闪电，连锁 3 个目标', k:'up'},
+  {id:'famine', name:'饥荒',    tip:'经验 -40%，金币 +40%', k:'mix'},
+  {id:'brittle',name:'脆甲',    tip:'护甲 -35%，移速 +15%、射速 +10%', k:'mix'},
+  {id:'phantom',name:'虚影',    tip:'每 6 秒进入 0.9 秒无敌', k:'up'},
+  {id:'siege',  name:'围城',    tip:'敌人数量 +45%，但血量 -15%', k:'mix'},
+  {id:'armored', name:'铁甲潮',  tip:'所有敌人受到的伤害 -25%', k:'down'},
+  {id:'frenzy',  name:'濒死狂化', tip:'敌人血量低于 35% 时移速 +50%', k:'down'},
+  {id:'sniper',  name:'狙击手',  tip:'远程敌人弹速 +60%、伤害 +35%', k:'down'},
+  {id:'swarmlord',name:'虫群领主', tip:'每波额外刷出 6 只小怪', k:'down'},
+  {id:'noheal',  name:'绝疗',    tip:'治疗掉落 -70%，所有回血 -40%', k:'down'},
+  {id:'bossrage',name:'首领狂怒', tip:'首领攻速 +25%、伤害 +25%', k:'down'},
+  {id:'pact',    name:'血债',    tip:'伤害 +50%，生命上限 -20%', k:'mix'},
+  {id:'shadow',  name:'疾影',    tip:'移速 +35%，护甲 -50%', k:'mix'},
+  {id:'greedpact',name:'贪婪契约', tip:'金币 ×3，经验 -35%', k:'mix'},
+  {id:'allin',   name:'孤注',    tip:'射速 +60%，受到的伤害 +30%', k:'mix'}
 ];
 
 var SHOP_POOL = [
@@ -626,11 +630,28 @@ function sfx(kind){
     tone(520 + Math.min(G.comboK || 0, 10)*22, 0.06, 'triangle', 0.025, false, true);
   }
   if (kind === 'killBig'){ tone(560, 0.16, 'triangle', 0.05, false, true); tone(300, 0.22, 'sine', 0.04, false, true); }
-  if (kind === 'crit')    tone(900, 0.07, 'square', 0.03, false, true);
-  if (kind === 'hurt')   tone(180, 0.09,  'sawtooth', 0.05);
+  /* 暴击/受击/拾取在高密度战斗里每帧可能触发十几次，每次都会新建振荡器；
+     人耳在 60~80ms 内分辨不出两次同样的短音，按类型各自节流 */
+  if (kind === 'crit'){
+    var ct = Date.now();
+    if (ct - (_sfxCritT || 0) < 70) return;
+    _sfxCritT = ct;
+    tone(900, 0.07, 'square', 0.03, false, true);
+  }
+  if (kind === 'hurt'){
+    var ht = Date.now();
+    if (ht - (_sfxHurtT || 0) < 85) return;
+    _sfxHurtT = ht;
+    tone(180, 0.09,  'sawtooth', 0.05);
+  }
   if (kind === 'level'){ tone(660, 0.12, 'sine', 0.06); setTimeout(function(){ tone(880, 0.14, 'sine', 0.06); }, 90); }
   if (kind === 'boss')   tone(110, 0.55,  'sawtooth', 0.07);
-  if (kind === 'coin')   tone(1240, 0.05, 'sine', 0.03);
+  if (kind === 'coin'){
+    var nt = Date.now();
+    if (nt - (_sfxCoinT || 0) < 55) return;
+    _sfxCoinT = nt;
+    tone(1240, 0.05, 'sine', 0.03);
+  }
   if (kind === 'ui')     tone(640, 0.05, 'sine', 0.04);
   if (kind === 'revive'){ tone(300,0.18,'sine',0.06); setTimeout(function(){ tone(540,0.2,'sine',0.06); }, 140); }
 }
@@ -2528,7 +2549,8 @@ function startPractice(){
   waveStart();
   if (G.state === 'shop') closeShop();
   spawnDummies();
-  toast('练习场 · 20 波及之后再战，无限生命，中央假人测 DPS');
+  toast(EN_LANG ? 'Practice · from wave 20, infinite HP, test DPS on the dummy'
+                : '练习场 · 20 波及之后再战，无限生命，中央假人测 DPS');
   hint('练习场不计星核与战绩；底部显示近 3 秒实测 DPS', 6500);
 }
 
@@ -3514,6 +3536,12 @@ function drawEnemy(e){
     _diN++;
     var wsz = spr.size / ENK;
     ctx.drawImage(spr.c, -wsz*0.5, -wsz*0.5, wsz, wsz);
+    /* 低画质不再烘焙白闪精灵，改用一圈细描边表达受击：一条 arc 比重画精灵便宜得多 */
+    if (lowq && e.hurt > 0){
+      ctx.strokeStyle = 'rgba(255,255,255,.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, 0, e.r + 1, 0, 6.2832); ctx.stroke();
+    }
   } else {
     paintEnemy(ctx, e, col, eGlow);   /* 尺寸超 512 或首帧绘制失败，退回直接画 */
   }
@@ -3818,7 +3846,7 @@ function drawHud(){
     ctx.textAlign = 'right';
     useF(FN(700,10.5));
     ctx.fillStyle = P.rgba(P.amRGB,0.82);
-    ctx.fillText('画质↓ L' + AUTOQ.lv, HX + HWW - F(16), F(150));
+    ctx.fillText((EN_LANG ? 'Q↓ L' : '画质↓ L') + AUTOQ.lv, HX + HWW - F(16), F(150));
   }
 
   if (G.boss && !G.boss.dead){
@@ -4470,6 +4498,8 @@ function showScreen(id){
     var t = document.getElementById(id);
     if (t) t.classList.remove('hide');
   }
+  /* 角色/基地/战绩/设置/商店都是每次重渲染 innerHTML 出来的中文，启动时那次 localizeDOM 管不到 */
+  if (typeof EN_LANG !== 'undefined' && EN_LANG) localizeDOM();
 }
 
 function metaCycle(){ return Math.max(1, S.set.cycle || 1); }
@@ -4651,7 +4681,10 @@ function cardHTML(kind, t, p, o){
   o = o || {};
   var h4 = '<h4' + (o.col ? ' style="color:' + o.col + '"' : '') + '>' + t + '</h4><p>' + p + '</p>';
   if (kind === 'ach') return '<div class="ach' + (o.done ? ' done' : '') + '"><span class="dot"></span><div>' + h4 + '</div></div>';
-  if (kind === 'codex') return '<div class="codexCard"' + (o.data || '') + (o.style ? ' style="' + o.style + '"' : '') + '>' + h4 + '</div>';
+  if (kind === 'codex'){
+    var st = (o.style ? o.style : '') + (o.accent ? (o.style ? ';' : '') + 'border-left:3px solid ' + o.accent : '');
+    return '<div class="codexCard"' + (o.data || '') + (o.zh ? ' data-zh="' + o.zh + '"' : '') + (st ? ' style="' + st + '"' : '') + '>' + h4 + '</div>';
+  }
   return '<div class="row"><div class="info">' + h4 + '</div>' + (o.right ? '<div class="price">' + o.right + '</div>' : '') + '</div>';
 }
 
@@ -4704,7 +4737,8 @@ function filterCodex(){
   var q = (qin.value || '').trim().toLowerCase();
   var cards = document.querySelectorAll('#scrCodex .codexCard, #scrCodex .ach, #scrCodex .row');
   for (var i=0;i<cards.length;i++){
-    cards[i].style.display = (!q || cards[i].textContent.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
+    var hay = (cards[i].textContent + ' ' + (cards[i].getAttribute('data-zh') || '')).toLowerCase();
+    cards[i].style.display = (!q || hay.indexOf(q) >= 0) ? '' : 'none';
   }
 }
 
@@ -4730,11 +4764,11 @@ function renderCodex(){
                 : ('生命 ' + d.hp + ' · 伤害 ' + d.dmg + ' · 移速 ' + d.spd + (d.shoot ? ' · 远程' : ''));
     var kl = EN_LANG ? ('Killed ' + (mkv ? fmt(mkv) : '0')) : ('已击杀 ' + (mkv ? fmt(mkv) : '0') + ' 只');
     html += cardHTML('codex', nm, st + '<br>' + kl,
-      {col: d.col, data: ' data-mon="' + ekeys[i] + '"', style: 'cursor:pointer'});
+      {col: d.col, data: ' data-mon="' + ekeys[i] + '"', style: 'cursor:pointer', zh: MON_NAME[ekeys[i]] || ''});
   }
   for (var k=0;k<BDEF.length;k++){
     var b = BDEF[k];
-    html += cardHTML('codex', (EN_LANG ? 'Boss · ' : '首领·') + b.name, b.desc, {col: b.col});
+    html += cardHTML('codex', (EN_LANG ? 'Boss · ' : '首领·') + b.name, b.desc, {col: b.col, zh: b._zh || b.name});
   }
   html += '</div>';
   document.getElementById('codexList').innerHTML = html;
@@ -4760,12 +4794,16 @@ function renderCodex(){
     var seenTxt = seen ? (EN_LANG ? ('　Seen ' + seen + ' · best wave ' + (S.modBest[md.id] || 0))
                                   : ('　遭遇 ' + seen + ' 次 · 最高第 ' + (S.modBest[md.id] || 0) + ' 波')) : '';
     var card = cardHTML('codex', md.name, md.tip + seenTxt,
-      {col: seen ? P.ink : 'rgba(234,255,248,.5)'});
+      {col: seen ? P.ink : 'rgba(234,255,248,.5)',
+       accent: md.k === 'up' ? '#7fb3a0' : (md.k === 'down' ? '#e0796a' : '#c8a24e'), zh: md._zh || md.name});
     if (seen) modA.push(card); else modB.push(card);
   }
   mh += '<p class="sub" style="font-size:11px;margin:8px 0 0">' + (EN_LANG
       ? ('Seen ' + modA.length + ' / ' + MODS.length + '　·　starts at wave 6')
-      : ('已遭遇 ' + modA.length + ' / ' + MODS.length + '　·　第 6 波起出现')) + '</p>';
+      : ('已遭遇 ' + modA.length + ' / ' + MODS.length + '　·　第 6 波起出现')) + '</p>'
+    + '<p class="sub" style="font-size:10.5px;margin:4px 0 0;opacity:.62">'
+    + (EN_LANG ? '<i style="color:#7fb3a0">▎</i>helps you　<i style="color:#e0796a">▎</i>hurts you　<i style="color:#c8a24e">▎</i>mixed'
+               : '<i style="color:#7fb3a0">▎</i>有利　<i style="color:#e0796a">▎</i>不利　<i style="color:#c8a24e">▎</i>双刃') + '</p>';
   if (modA.length) mh += '<div class="codexGrid">' + modA.join('') + '</div>';
   if (modB.length){
     mh += '<p class="sub" style="font-size:11px;margin:10px 0 0;opacity:.6">' + (EN_LANG
@@ -4797,7 +4835,7 @@ function renderCodex(){
     ph += cardHTML('codex', u.name + (lk ? ' <span style="color:#c8a24e;font-size:10.5px;font-weight:400">' + (EN_LANG ? 'LOCKED' : '已锁') + '</span>' : ''),
       (un ? (EN_LANG ? ('Picked ' + un) : ('选取 ' + un + ' 次')) : (EN_LANG ? 'Never picked' : '未选过'))
       + (u.max ? (EN_LANG ? (' · max ' + u.max) : (' · 上限 ' + u.max)) : ''),
-      {data: ' data-lockupg="' + u.id + '"', style: 'cursor:pointer' + (lk ? ';opacity:.55' : '')});
+      {data: ' data-lockupg="' + u.id + '"', style: 'cursor:pointer' + (lk ? ';opacity:.55' : ''), zh: u._zh || u.name});
   }
   for (var ej=0; ej<EVO.length; ej++){
     var ev2 = EVO[ej], done2 = (G && G.evoDone) ? !!G.evoDone[ev2.id] : false;
@@ -4808,6 +4846,7 @@ function renderCodex(){
       needTxt.push(nmn + '×' + ev2.req);
     }
     ph += cardHTML('codex', (EN_LANG ? 'Evolved · ' : '进化 · ') + ev2.name, needTxt.join(' + '),
+      {zh: ev2._zh || ev2.name},
       {col: '#e8c87c', style: done2 ? '' : 'opacity:.55'});
   }
   ph += '</div>';
@@ -4913,10 +4952,17 @@ function renderSettings(){
     + langRow + '</details>';
 
   /* 性能面板：开关在"画面"组里，读数固定在设置页最底部 */
+  var qRow = (AUTOQ && AUTOQ.lv > 0)
+    ? ('<div class="toggle-row" style="margin-top:6px"><div class="info"><h4>'
+      + (EN ? 'Auto quality' : '自动降档') + ' · L' + AUTOQ.lv + '</h4><p>'
+      + (EN ? 'Frames dropped, render scale was lowered' : '检测到掉帧，渲染精度已自动下调') + '</p></div>'
+      + '<button class="btn ghost" data-qreset="1" style="margin:0;padding:8px 12px;font-size:12px">'
+      + (EN ? 'Reset' : '恢复满画质') + '</button></div>')
+    : '';
   var fpsRow = S.set.perf ? ('<div id="setFpsLine" style="margin-top:10px;padding:8px 11px;border-radius:8px;'
     + 'background:rgba(0,0,0,.34);font:400 11.5px/1.7 ' + FFSANS + ';color:#9db0a8;letter-spacing:.2px;'
     + 'word-break:break-all">FPS —</div>') : '';
-  document.getElementById('setList').innerHTML = gView + gAudio + gOp + gOther + fpsRow;
+  document.getElementById('setList').innerHTML = gView + qRow + gAudio + gOp + gOther + fpsRow;
 }
 var fpsTick = setInterval(function(){
   var el = document.getElementById('setFpsLine');
@@ -5304,6 +5350,8 @@ function trendMark(id, cur, list, key){
   var avg = sum / n, d = cur - avg, pct = avg > 0 ? d / avg : 0;
   el.textContent = Math.abs(pct) < 0.06 ? '≈' : (d > 0 ? '▲' : '▼');
   el.style.color = Math.abs(pct) < 0.06 ? 'rgba(234,255,248,.42)' : (d > 0 ? '#7fb3a0' : '#e0796a');
+  el.style.cursor = 'pointer';
+  el.onclick = function(){ if (el.title) toast(el.title); };
   el.title = EN_LANG ? ('avg of last ' + n + ' runs ' + Math.round(avg) + '　this run ' + (pct > 0 ? '+' : '') + Math.round(pct*100) + '%')
                      : ('近 ' + n + ' 局均值 ' + Math.round(avg) + '　本局 ' + (pct > 0 ? '+' : '') + Math.round(pct*100) + '%');
 }
@@ -6146,7 +6194,8 @@ screenRoot.addEventListener('click', function(ev){
     return;
   }
   if (t.getAttribute && t.getAttribute('data-save-wipe')){
-    if (window.confirm('确定清除全部存档？星核、强化、角色解锁都会丢失。')){
+    if (window.confirm(EN_LANG ? 'Clear all save data? Cores, upgrades and survivor unlocks will be lost.'
+                               : '确定清除全部存档？星核、强化、角色解锁都会丢失。')){
       try{ localStorage.removeItem(SAVE_KEY); }catch(e){}
       loadSave(); saveNow(); applySkin(); renderMenu(); renderSettings(); toast('存档已清除');
     }
@@ -6155,10 +6204,23 @@ screenRoot.addEventListener('click', function(ev){
   var lku = t.getAttribute && t.getAttribute('data-lockupg');
   if (lku){
     S.set.lockUpg = S.set.lockUpg || {};
-    S.set.lockUpg[lku] = !S.set.lockUpg[lku];
+    var nowLock = !S.set.lockUpg[lku];
+    S.set.lockUpg[lku] = nowLock;
     saveNow();
     sfx('ui');
+    var uname = lku;
+    for (var ui2=0; ui2<UPG.length; ui2++) if (UPG[ui2].id === lku) uname = UPG[ui2].name;
+    toast(EN_LANG ? ((nowLock ? 'Locked · ' : 'Unlocked · ') + uname)
+                  : ((nowLock ? '已锁定 · ' : '已解锁 · ') + uname));
     renderCodex();
+    return;
+  }
+  if (t.getAttribute && t.getAttribute('data-qreset')){
+    AUTOQ.lv = 0; AUTOQ.on = false; AUTOQ.slow = 0; AUTOQ.fast = 0; AUTOQ.cool = Date.now() + 60000;
+    try{ resize(); }catch(e){}
+    sfx('ui');
+    toast(EN_LANG ? 'Quality reset to full' : '已恢复满画质');
+    renderSettings();
     return;
   }
   var setk = t.getAttribute && t.getAttribute('data-set');
@@ -6394,13 +6456,18 @@ function frame(ts){
     if (AUTOQ.lv < 3){
       AUTOQ.lv++; AUTOQ.on = AUTOQ.lv > 0; AUTOQ.fast = 0; AUTOQ.cool = Date.now() + 90000; resize();
       G.qNoteUntil = Date.now() + 8000;
-      toast(AUTOQ.lv === 1 ? '检测到掉帧 · 已自动降低渲染精度'
-         : (AUTOQ.lv === 2 ? '仍偏卡 · 已切到最低画质' : '非常卡 · 已开到极低画质'));
+      toast(EN_LANG
+        ? (AUTOQ.lv === 1 ? 'Frames dropped · render scale lowered'
+          : (AUTOQ.lv === 2 ? 'Still heavy · switched to low quality' : 'Very heavy · extra-low quality on'))
+        : (AUTOQ.lv === 1 ? '检测到掉帧 · 已自动降低渲染精度'
+          : (AUTOQ.lv === 2 ? '仍偏卡 · 已切到最低画质' : '非常卡 · 已开到极低画质')));
     }
   } else if (AUTOQ.fast > 25 && AUTOQ.lv > 0 && Date.now() > (AUTOQ.cool || 0)){
     /* 恢复档位要比降档谨慎得多：稳定 25 秒才升一档，且降档后 90 秒内不许升。
        否则刚降档画面变轻、立刻又快起来、升回去又卡，玩家会看到画质反复跳 */
     AUTOQ.fast = 0; AUTOQ.cool = Date.now() + 90000; AUTOQ.lv--; AUTOQ.on = AUTOQ.lv > 0; resize();
+    /* 升档也要说一声，否则玩家会突然发现画面变清晰却不知道发生了什么 */
+    toast(EN_LANG ? ('Quality restored · L' + AUTOQ.lv) : ('画质已恢复 · L' + AUTOQ.lv));
   }
   var fpsNow = (G && G.fps) ? G.fps : 60;
   if (G && G.state === 'playing' && !G.daily){
