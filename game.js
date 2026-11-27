@@ -864,7 +864,9 @@ function spawnGuard(){
   var hp = Math.round(140 + ss.w*22 + ss.lv*9);
   G.guard = {x:p.x+34, y:p.y-40, hp:hp, hpMax:hp, r:22, t:0, hurt:0, ss:ss};
   G.shake = Math.max(G.shake, 6);
-  toast(ss.fb ? '无存档记录 · 三十关标准的自己替你挡枪' : ('存档最强 · 第' + ss.w + '波的自己替你挡枪'));
+  toast(EN_LANG ? (ss.fb ? 'No save yet · a wave-30 stand-in takes the hit for you'
+                          : ('Best save · your wave-' + ss.w + ' self takes the hit'))
+                : (ss.fb ? '无存档记录 · 三十关标准的自己替你挡枪' : ('存档最强 · 第' + ss.w + '波的自己替你挡枪')));
   sfx('revive');
 }
 
@@ -1311,7 +1313,7 @@ function damagePlayer(raw, src){
     burst(p.x, p.y, P.amSoft, 16, 11);
     sfx('coin');
     var bt2 = PNow();
-    if (!window.__blkT || bt2 - window.__blkT > 2000){ window.__blkT = bt2; toast('飞剑挡下这一击'); }
+    if (!window.__blkT || bt2 - window.__blkT > 2000){ window.__blkT = bt2; toast(EN_LANG ? 'Flying sword blocked the hit' : '飞剑挡下这一击'); }
     return false;
   }
   var d = raw * armorTaken(p.armor) * (p.dmgTake || 1);
@@ -1331,7 +1333,8 @@ function damagePlayer(raw, src){
     p.invul = 2.6;
     p.regenBoost = 8;
     G.shake = Math.max(G.shake, 12);
-    toast('紧急护盾：前 10 波保你一命，回复至 35% 生命');
+    toast(EN_LANG ? 'Emergency shield: first 10 waves save you once, back to 35% HP'
+                  : '紧急护盾：前 10 波保你一命，回复至 35% 生命');
     sfx('revive');
     spawnGuard();
     return false;
@@ -1397,13 +1400,27 @@ function waveStart(){
 
 function deathAdvice(cause){
   if (!cause) return '';
-  if (cause.indexOf('吐酸者') >= 0 || cause.indexOf('精英') >= 0) return '建议：远程弹道出现前先横移一步，或堆护甲/回血顶过消耗。';
-  if (cause.indexOf('疾行虫') >= 0) return '建议：疾行虫速度快，留一条退路，别把自己压进角落。';
-  if (cause.indexOf('重甲') >= 0) return '建议：重甲兽血厚，优先拿穿透与高倍伤害，别靠磨。';
-  if (cause.indexOf('毒圈') >= 0) return '建议：毒圈收缩时提前回到中心，别在边缘捡东西。';
-  if (cause.indexOf('首领') >= 0) return '建议：首领转阶段时先拉开距离，等它交完一轮技能再贴。';
-  if (cause.indexOf('猎手') >= 0) return '建议：猎手会持续追击，别直线逃，绕圈拉开再反打。';
-  return '建议：留意波次提示，提前规划下一波的站位。';
+  var en = EN_LANG;
+  if (cause.indexOf('吐酸者') >= 0 || cause.indexOf('精英') >= 0)
+    return en ? 'Tip: sidestep before ranged shots land, or stack armor/regen to outlast the poke.'
+              : '建议：远程弹道出现前先横移一步，或堆护甲/回血顶过消耗。';
+  if (cause.indexOf('疾行虫') >= 0)
+    return en ? 'Tip: Runners are fast — keep an escape lane, do not get pinned in a corner.'
+              : '建议：疾行虫速度快，留一条退路，别把自己压进角落。';
+  if (cause.indexOf('重甲') >= 0)
+    return en ? 'Tip: Heavy Brutes have thick HP; take pierce and burst damage instead of grinding.'
+              : '建议：重甲兽血厚，优先拿穿透与高倍伤害，别靠磨。';
+  if (cause.indexOf('毒圈') >= 0)
+    return en ? 'Tip: return to the center early when the zone shrinks; do not loot on the edge.'
+              : '建议：毒圈收缩时提前回到中心，别在边缘捡东西。';
+  if (cause.indexOf('首领') >= 0)
+    return en ? 'Tip: pull back when the boss changes phase, then re-engage after its burst.'
+              : '建议：首领转阶段时先拉开距离，等它交完一轮技能再贴。';
+  if (cause.indexOf('猎手') >= 0)
+    return en ? 'Tip: the Hunter never stops chasing — circle instead of running straight, then turn on it.'
+              : '建议：猎手会持续追击，别直线逃，绕圈拉开再反打。';
+  return en ? 'Tip: watch the next-wave preview and plan your position early.'
+            : '建议：留意波次提示，提前规划下一波的站位。';
 }
 
 function saveCheckpoint(persist, force){
@@ -3407,7 +3424,8 @@ function bulletSprite(r, skin){
 
 /* 精灵缓存：key 里带 ENK（DPR×缩放），窗口尺寸变了自然换一批，读到的永远是 1:1 像素，
    不会出现整屏被放大后糊掉的问题 */
-var _sprC = new Map();   /* 精灵缓存：LRU，命中即移到队尾，超 96 张淘汰最久未用的一张 */
+var _sprC = new Map();   /* 精灵缓存：LRU，命中即移到队尾；同时受张数与字节数双限 */
+var _sprB = 0;           /* 精灵缓存总字节数（size²×4），首领大图很占内存 */
 var SPR_PAD = 8;   /* 设备像素留白，给描边外扩 */
 function enemySprite(e, col, eGlow){
   /* key 挂在怪身上复用：同屏几百只时，每帧每只拼 ~60 字符的 key 是全场景最大的字符串分配源，
@@ -3429,18 +3447,21 @@ function enemySprite(e, col, eGlow){
   c2.translate(szD*0.5, szD*0.5);
   c2.scale(ENK, ENK);
   try { paintEnemy(c2, e, col, eGlow); } catch(err){ return null; }
-  if (_sprC.size >= 96){
-    /* 淘汰最久未用，但大精灵（首领/精英）重画一次要几十条路径，优先留下：
-       先看队首若干张里最小的一张，小图重建便宜，换掉它更划算 */
+  /* 双限：张数 96，字节 8MB。大精灵（首领/精英）重画一次要几十条路径，
+     所以淘汰时扫队首若干张、挑最小的一张，小图重建便宜 */
+  while (_sprC.size >= 96 || _sprB > 8388608){
+    if (_sprC.size <= 1) break;
     var it = _sprC.keys(), kn = it.next(), victim = kn.value, vSz = _sprC.get(victim).size;
     for (var pi=0; pi<8; pi++){
       var nx = it.next(); if (nx.done) break;
-      var sz = _sprC.get(nx.value).size;
-      if (sz < vSz){ victim = nx.value; vSz = sz; }
+      var sz2 = _sprC.get(nx.value).size;
+      if (sz2 < vSz){ victim = nx.value; vSz = sz2; }
     }
+    _sprB -= vSz * vSz * 4;
     _sprC.delete(victim);
   }
   got = {c: cn, size: szD};
+  _sprB += szD * szD * 4;
   _sprC.set(key, got);
   return got;
 }
@@ -3448,8 +3469,7 @@ function enemySprite(e, col, eGlow){
 var _diN = 0;   /* 本帧敌方精灵 drawImage 次数，性能面板用 */
 /* 精灵缓存近似占用：每张按 size²×4 字节算，首领大图能占几 MB，光看张数看不出来 */
 function sprMem(){
-  var b = 0;
-  _sprC.forEach(function(v){ b += v.size * v.size * 4; });
+  var b = _sprB;
   return b < 1048576 ? (Math.round(b/1024) + 'KB') : ((b/1048576).toFixed(1) + 'MB');
 }
 
@@ -4677,9 +4697,23 @@ function renderStats(){
   document.getElementById('statsList').innerHTML = html;
 }
 
+/* 图鉴搜索：只过滤已渲染的卡片，不重跑渲染，输入时零卡顿 */
+function filterCodex(){
+  var qin = document.getElementById('codexQ');
+  if (!qin) return;
+  var q = (qin.value || '').trim().toLowerCase();
+  var cards = document.querySelectorAll('#scrCodex .codexCard, #scrCodex .ach, #scrCodex .row');
+  for (var i=0;i<cards.length;i++){
+    cards[i].style.display = (!q || cards[i].textContent.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
+  }
+}
+
 var MON_NAME = {grunt:'爬行者', runner:'疾行虫', tank:'重甲兽', shooter:'吐酸者', swarm:'虫群', elite:'精英重甲'};
 
 function renderCodex(){
+  var qin = document.getElementById('codexQ');
+  if (qin && !qin._bound){ qin._bound = 1; qin.addEventListener('input', filterCodex); }
+  if (qin) qin.placeholder = EN_LANG ? 'Search cards / keywords' : '搜索卡名 / 关键词';
   var achN = 0;
   for (var ai=0; ai<ACH.length; ai++){ if (S.ach && S.ach[ACH[ai].id]) achN++; }
   document.getElementById('codexTotal').textContent = EN_LANG
@@ -5188,7 +5222,8 @@ function checkAch(){
   }
   if (!got.length) return;
   /* 一次解锁好几个不刷屏，合并成一条 */
-  toast('成就达成 · ' + (got.length > 2 ? (got.slice(0,2).join(' / ') + ' 等 ' + got.length + ' 项') : got.join(' / ')));
+  toast((EN_LANG ? 'Achievement · ' : '成就达成 · ')
+    + (got.length > 2 ? (got.slice(0,2).join(' / ') + (EN_LANG ? (' +' + (got.length-2) + ' more') : (' 等 ' + got.length + ' 项'))) : got.join(' / ')));
   try { sfx('level'); } catch(e){}
 }
 
@@ -5269,7 +5304,8 @@ function trendMark(id, cur, list, key){
   var avg = sum / n, d = cur - avg, pct = avg > 0 ? d / avg : 0;
   el.textContent = Math.abs(pct) < 0.06 ? '≈' : (d > 0 ? '▲' : '▼');
   el.style.color = Math.abs(pct) < 0.06 ? 'rgba(234,255,248,.42)' : (d > 0 ? '#7fb3a0' : '#e0796a');
-  el.title = '近 ' + n + ' 局均值 ' + Math.round(avg) + '　本局 ' + (pct > 0 ? '+' : '') + Math.round(pct*100) + '%';
+  el.title = EN_LANG ? ('avg of last ' + n + ' runs ' + Math.round(avg) + '　this run ' + (pct > 0 ? '+' : '') + Math.round(pct*100) + '%')
+                     : ('近 ' + n + ' 局均值 ' + Math.round(avg) + '　本局 ' + (pct > 0 ? '+' : '') + Math.round(pct*100) + '%');
 }
 
 function gameOver(){
@@ -5282,12 +5318,18 @@ function gameOver(){
   restoreRnd();
   G.deathMods = G.mods ? G.mods.map(function(m){ return m.name; }) : [];
 
-  document.getElementById('overKicker').textContent = (G.practice ? '练习局 · 不结算星核与战绩'
-    : ('本局结算　+' + fmt(core) + ' 星核' + (G.hellBonus ? ('（含地狱首通 +' + fmt(G.hellBonus) + '）') : '')))
-    + (G.bountyDone ? ('　· 悬赏清除 ' + G.bountyDone + ' 只') : '')
-    + (G.swordBlock ? ('　· 飞剑挡伤 ' + G.swordBlock + ' 次') : '')
-    + (G.deathMods && G.deathMods.length ? ('\n异变 · ' + G.deathMods.slice(0,5).join(' / ') + (G.deathMods.length > 5 ? ' 等' + G.deathMods.length + ' 条' : '')) : '');
-  document.getElementById('overTitle').textContent = '你被怪潮淹没了';
+  document.getElementById('overKicker').textContent = EN_LANG
+    ? ((G.practice ? 'Practice · no Cores or records'
+      : ('This run　+' + fmt(core) + ' Cores' + (G.hellBonus ? (' (incl. Inferno first clear +' + fmt(G.hellBonus) + ')') : '')))
+      + (G.bountyDone ? ('　· ' + G.bountyDone + ' bounty kills') : '')
+      + (G.swordBlock ? ('　· ' + G.swordBlock + ' sword blocks') : '')
+      + (G.deathMods && G.deathMods.length ? ('\nMutations · ' + G.deathMods.slice(0,5).join(' / ') + (G.deathMods.length > 5 ? (' +' + (G.deathMods.length - 5) + ' more') : '')) : ''))
+    : ((G.practice ? '练习局 · 不结算星核与战绩'
+      : ('本局结算　+' + fmt(core) + ' 星核' + (G.hellBonus ? ('（含地狱首通 +' + fmt(G.hellBonus) + '）') : '')))
+      + (G.bountyDone ? ('　· 悬赏清除 ' + G.bountyDone + ' 只') : '')
+      + (G.swordBlock ? ('　· 飞剑挡伤 ' + G.swordBlock + ' 次') : '')
+      + (G.deathMods && G.deathMods.length ? ('\n异变 · ' + G.deathMods.slice(0,5).join(' / ') + (G.deathMods.length > 5 ? ' 等' + G.deathMods.length + ' 条' : '')) : ''));
+  document.getElementById('overTitle').textContent = EN_LANG ? 'Overrun by the Horde' : '你被怪潮淹没了';
   /* 死因与建议节点必须复用：原来每死一次都新建一个建议段落，
      连死几局后结算页会堆满重复文字；死因不更新时还会残留上一局的死因 */
   var dc = document.getElementById('overCause');
@@ -5301,7 +5343,7 @@ function gameOver(){
       var dv = document.getElementById('overDetail');
       dv.insertBefore(dc, dv.firstChild);
     }
-    dc.textContent = '死因 · ' + G.deathCause;
+    dc.textContent = (EN_LANG ? 'Cause · ' : '死因 · ') + (EN_LANG ? dcEN(G.deathCause) : G.deathCause);
     if (!adv){
       adv = document.createElement('p');
       adv.id = 'overAdv';
@@ -5357,8 +5399,11 @@ function gameOver(){
       (_dv ? _dv.parentNode : cmp.parentNode).insertBefore(sumEl, _dv || cmp.nextSibling);
     }
     var rRatio = (G.runDmg > 0) ? (G.runTaken / G.runDmg * 100) : 0;
-    sumEl.textContent = '本局输出 ' + kfmt(G.runDmg) + ' · 承伤 ' + kfmt(G.runTaken)
-      + (G.runTaken ? ('（占输出 ' + (rRatio >= 999 ? '999+' : Math.round(rRatio)) + '%）') : '（零承伤）');
+    sumEl.textContent = EN_LANG
+      ? ('Dealt ' + kfmt(G.runDmg) + ' · taken ' + kfmt(G.runTaken)
+        + (G.runTaken ? (' (' + (rRatio >= 999 ? '999+' : Math.round(rRatio)) + '% of output)') : ' (no damage taken)'))
+      : ('本局输出 ' + kfmt(G.runDmg) + ' · 承伤 ' + kfmt(G.runTaken)
+        + (G.runTaken ? ('（占输出 ' + (rRatio >= 999 ? '999+' : Math.round(rRatio)) + '%）') : '（零承伤）'));
   } else if (sumEl) sumEl.textContent = '';
 
   /* 结算页直接给今日任务进度：以前只有回菜单/暂停才看得到，打完一局不知道还差什么 */
@@ -5373,9 +5418,13 @@ function gameOver(){
       var _dv3 = document.getElementById('overDetail');
       (_dv3 ? _dv3.parentNode : cmp.parentNode).insertBefore(qEl, _dv3 || cmp.nextSibling);
     }
-    qEl.textContent = qDone >= QUESTS.length
-      ? '今日任务 ' + qDone + '/' + QUESTS.length + ' · 已全部完成'
-      : '今日任务 ' + qDone + '/' + QUESTS.length + ' · 每项 +30 星核（次日刷新）';
+    qEl.textContent = EN_LANG
+      ? (qDone >= QUESTS.length
+        ? ('Daily quests ' + qDone + '/' + QUESTS.length + ' · all done')
+        : ('Daily quests ' + qDone + '/' + QUESTS.length + ' · +30 Cores each (resets daily)'))
+      : (qDone >= QUESTS.length
+        ? '今日任务 ' + qDone + '/' + QUESTS.length + ' · 已全部完成'
+        : '今日任务 ' + qDone + '/' + QUESTS.length + ' · 每项 +30 星核（次日刷新）');
   } else if (qEl) qEl.textContent = '';
 
   var chart = document.getElementById('overChart');
@@ -5442,11 +5491,17 @@ function gameOver(){
   for (var ei in evoD){ if (evoD[ei]){ for (var ej=0; ej<EVO.length; ej++) if (EVO[ej].id === ei) evoN.push(EVO[ej].name); } }
   for (var si in schD){ if (schD[si] && SCHOOLS[si]) schN.push(SCHOOLS[si].title); }
   var locksN = S.set.lockUpg ? Object.keys(S.set.lockUpg).filter(function(k){ return S.set.lockUpg[k]; }) : [];
-  var btxt = '构筑 · 进化 ' + (evoN.length ? evoN.join(' / ') : '无')
-    + (schN.length ? ('　质变 ' + schN.join(' / ')) : '')
-    + (locksN.length ? ('　锁 ' + locksN.length + ' 张') : '')
-    + '　最高连杀 ' + (G.comboBest || G.comboK || 0)
-    + (G.dpsPeak ? ('　峰值 DPS ' + fmt(Math.round(G.dpsPeak))) : '');
+  var btxt = EN_LANG
+    ? ('Build · evolved ' + (evoN.length ? evoN.join(' / ') : 'none')
+      + (schN.length ? ('　ascended ' + schN.join(' / ')) : '')
+      + (locksN.length ? ('　' + locksN.length + ' locked') : '')
+      + '　best streak ' + (G.comboBest || G.comboK || 0)
+      + (G.dpsPeak ? ('　peak DPS ' + fmt(Math.round(G.dpsPeak))) : ''))
+    : ('构筑 · 进化 ' + (evoN.length ? evoN.join(' / ') : '无')
+      + (schN.length ? ('　质变 ' + schN.join(' / ')) : '')
+      + (locksN.length ? ('　锁 ' + locksN.length + ' 张') : '')
+      + '　最高连杀 ' + (G.comboBest || G.comboK || 0)
+      + (G.dpsPeak ? ('　峰值 DPS ' + fmt(Math.round(G.dpsPeak))) : ''));
   bld.textContent = btxt;
 
   var box = document.getElementById('reviveBox');
@@ -5457,7 +5512,7 @@ function gameOver(){
     box.classList.add('used');
   }
   showScreen('scrOver');
-  hint('本轮已结束，星核已存入基地', 4200);
+  hint(EN_LANG ? 'Run finished — Cores saved to base' : '本轮已结束，星核已存入基地', 4200);
 }
 
 function reviveRun(){
@@ -5820,7 +5875,7 @@ bind('btnOverDetail', function(){
   if (!d) return;
   var show = d.classList.contains('hide');
   d.classList.toggle('hide', !show);
-  if (b) b.textContent = show ? '收起详情' : '查看详情';
+  if (b) b.textContent = EN_LANG ? (show ? 'Hide details' : 'Details') : (show ? '收起详情' : '查看详情');
 });
 
 function restartRun(){
@@ -5884,7 +5939,8 @@ function makeShareCard(){
   }
   var lines = [];
   lines.push(L('难度 · ','Difficulty · ') + ((G.diff && G.diff.name) || L('普通','Normal'))
-    + ((G.cycle||1) > 1 ? (L(' · 第',' · Cycle ') + G.cycle + L('周目','')) : ''));
+    + ((G.cycle||1) > 1 && G.cycle > 1 && !badges.some(function(v){ return /Cycle|周目/.test(v); })
+        ? (L(' · 第',' · Cycle ') + G.cycle + L('周目','')) : ''));
   lines.push(L('角色 · ','Survivor · ') + ((CHARS[S.char] && CHARS[S.char].name) || L('先锋','Vanguard')));
   lines.push(L('死因 · ','Cause · ') + (EN_LANG ? dcEN(G.deathCause) : G.deathCause) || '—');
   var evos = [], schs = [];
