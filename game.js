@@ -278,7 +278,13 @@ if (EN_LANG){
   if (document.readyState === 'complete') setTimeout(boot, 0);
   else window.addEventListener('load', boot);
   setTimeout(boot, 0);
-  setInterval(function(){ if (EN_LANG && !document.hidden) localizeDOM(); }, 1500);
+  /* 战斗中 HUD 全走 canvas、DOM 基本不动，这轮全量遍历纯属白烧；
+     只有面板层（升级/商店/暂停/结算）才需要补翻译，切屏时 showScreen 也会补一次 */
+  setInterval(function(){
+    if (!EN_LANG || document.hidden) return;
+    if (G && G.state === 'playing') return;
+    localizeDOM();
+  }, 1500);
 }
 
 var THEME = [
@@ -4656,20 +4662,20 @@ function renderBuild(){
     goals.push(G.quest.type === 'nohit' ? '支线 · 不受伤'
       : ('支线 · ' + (G.kills - G.quest.kills0) + '/' + G.quest.need));
   }
-  if (!goals.length) goals.push('暂无目标，安心刷怪');
+  if (!goals.length) goals.push(EN_LANG ? 'No goal — just farm' : '暂无目标，安心刷怪');
   if ((G.cycle || 1) > 1) goals.push('第' + G.cycle + '周目');
   /* 下一波构成预览：Boss 波提前知道，好决定要不要先买装备 */
   var nw = G.wave + 1;
   if (!G.practice && !G.training){
     goals.push(nw % 5 === 0
-      ? ('下一波 · 第 ' + nw + ' 波 Boss 战')
-      : ('下一波 · 第 ' + nw + ' 波小怪'));
+      ? (EN_LANG ? ('Next wave · wave ' + nw + ' Boss fight') : ('下一波 · 第 ' + nw + ' 波 Boss 战'))
+      : (EN_LANG ? ('Next wave · wave ' + nw + ' mobs') : ('下一波 · 第 ' + nw + ' 波小怪')));
   }
   el.innerHTML =
       '<div class="meta-line"><span class="lbl">生命</span><b>' + Math.ceil(p.hp) + ' / ' + Math.round(p.hpMax) + '</b>'
     + '<span class="best">伤害 ' + Math.round(p.dmg) + ' · 射速 ' + p.rate.toFixed(2) + '/s · 移速 ' + Math.round(p.spd) + '</span></div>'
     + '<div class="list" style="margin-top:10px">'
-    + row('本局目标', goals, '#c8a24e')
+    + row(EN_LANG ? 'Run goals' : '本局目标', goals, '#c8a24e')
     + row('强化', ups, P.am)
     + row('进化', evos, P.amSoft)
     + row('质变', schs, '#b5563a')
@@ -4741,10 +4747,49 @@ function filterCodex(){
   if (!qin) return;
   var q = (qin.value || '').trim().toLowerCase();
   var cards = document.querySelectorAll('#scrCodex .codexCard, #scrCodex .ach, #scrCodex .row');
+  var hit = 0, hitAll = 0, firstPane = null;
   for (var i=0;i<cards.length;i++){
     var hay = (cards[i].textContent + ' ' + (cards[i].getAttribute('data-zh') || '')).toLowerCase();
-    cards[i].style.display = (!q || hay.indexOf(q) >= 0) ? '' : 'none';
+    var on = !q || hay.indexOf(q) >= 0;
+    cards[i].style.display = on ? '' : 'none';
+    /* 只数当前页签里的卡，否则切到异变页签时会报出怪物的命中数 */
+    if (on){
+      hitAll++;
+      var pn = cards[i].closest ? cards[i].closest('.tabpane') : null;
+      if (!pn || pn.style.display !== 'none') hit++;
+      else if (!firstPane && pn) firstPane = pn.getAttribute('data-pane');
+    }
   }
+  /* 搜索没有反馈是最大的困惑：原来搜不到就是一片空白，用户分不清是"没这个词"还是"页面坏了" */
+  var tip = document.getElementById('codexHit');
+  if (!tip){
+    tip = document.createElement('p');
+    tip.id = 'codexHit';
+    tip.className = 'sub';
+    tip.style.cssText = 'font-size:11.5px;margin:6px 0 0;opacity:.7';
+    if (qin.parentNode) qin.parentNode.insertBefore(tip, qin.nextSibling);
+  }
+  if (!tip._b){
+    tip._b = 1;
+    /* 点提示直接跳到有命中的页签，省掉让玩家自己一个个翻 */
+    tip.addEventListener('click', function(){
+      if (!tip._tab) return;
+      var tb = document.querySelector('#codexTabs [data-tab="' + tip._tab + '"]');
+      if (tb){ tb.click(); filterCodex(); }
+    });
+  }
+  tip._tab = (!hit && hitAll) ? firstPane : null;
+  tip.style.cursor = tip._tab ? 'pointer' : 'default';
+  if (!q){ tip.style.display = 'none'; return; }
+  tip.style.display = '';
+  /* 关键词命中可能落在别的页签上：只报"本页 0 张"会让玩家以为没有这张卡 */
+  tip.textContent = hit
+    ? (EN_LANG ? (hit + ' matched') : ('匹配 ' + hit + ' 张'))
+    : (hitAll
+        ? (EN_LANG ? ('None on this tab · ' + hitAll + ' on other tabs')
+                   : ('本页没有 · 其他页签还有 ' + hitAll + ' 张'))
+        : (EN_LANG ? 'No match — try another word' : '没有匹配的卡 · 换个词试试'));
+  if (!hit && hitAll) tip.textContent += (EN_LANG ? '　(tap to jump)' : '　（点这里跳过去）');
 }
 
 var MON_NAME = {grunt:'爬行者', runner:'疾行虫', tank:'重甲兽', shooter:'吐酸者', swarm:'虫群', elite:'精英重甲'};
@@ -5134,10 +5179,10 @@ function pickReason(pk){
     }
     if (mx < bestGap){ bestGap = mx; bestName = evd3.name; }
   }
-  if (bestGap <= 1) return '进化差1级';
-  if (bestGap <= 2) return '进化差' + bestGap + '级';
-  if (pk.def.school) return '同系质变';
-  return '补短板';
+  if (bestGap <= 1) return EN_LANG ? 'Evolve · 1 lv left' : '进化差1级';
+  if (bestGap <= 2) return EN_LANG ? ('Evolve · ' + bestGap + ' lv left') : ('进化差' + bestGap + '级');
+  if (pk.def.school) return EN_LANG ? 'School sync' : '同系质变';
+  return EN_LANG ? 'Fill the gap' : '补短板';
 }
 
 function renderPicks(picks){
@@ -5158,8 +5203,8 @@ function renderPicks(picks){
       stackTxt = '进化 · 合成';
     } else {
       var sch = def.school && SCHOOLS[def.school];
-      stackTxt = (sch ? '质变 ' : '强化 ') + ((G.stacks[def.id]||0)+1) + (def.max ? ('/' + def.max) : '')
-        + (sch ? ('<br>' + sch.name + '系 ' + Math.min(schoolNeed(def.school), (G.school[def.school]||0)+1) + '/' + schoolNeed(def.school)) : '');
+      stackTxt = (EN_LANG ? (sch ? 'Sync ' : 'Upg ') : (sch ? '质变 ' : '强化 ')) + ((G.stacks[def.id]||0)+1) + (def.max ? ('/' + def.max) : '')
+        + (sch ? ('<br>' + sch.name + (EN_LANG ? ' · ' : '系 ') + Math.min(schoolNeed(def.school), (G.school[def.school]||0)+1) + '/' + schoolNeed(def.school)) : '');
       for (var ev=0; ev<EVO.length; ev++){
         var evd = EVO[ev];
         if (evd.need.indexOf(def.id) < 0 || G.evoDone[evd.id]) continue;
@@ -5174,9 +5219,9 @@ function renderPicks(picks){
           }
         }
         if (gaps.length){
-          stackTxt += '<span class="evoHint"><b>进化「' + evd.name + '」</b>';
+          stackTxt += '<span class="evoHint"><b>' + (EN_LANG ? ('Evolve 「' + evd.name + '」') : ('进化「' + evd.name + '」')) + '</b>';
           for (var gi=0; gi<gaps.length; gi++){
-            stackTxt += '<span class="evoLine"><em>' + gaps[gi].nm + '</em><s>差' + gaps[gi].g + '级</s></span>';
+            stackTxt += '<span class="evoLine"><em>' + gaps[gi].nm + '</em><s>' + (EN_LANG ? (gaps[gi].g + ' lv left') : ('差' + gaps[gi].g + '级')) + '</s></span>';
           }
           stackTxt += '</span>';
         }
@@ -5196,8 +5241,9 @@ function renderPicks(picks){
     var lkNames = [], lkMap = S.set.lockUpg || {};
     for (var li=0; li<UPG.length; li++) if (lkMap[UPG[li].id]) lkNames.push(UPG[li].name);
     chip.textContent = lkNames.length
-      ? ('已锁 ' + lkNames.length + ' 张 · ' + lkNames.slice(0,2).join(' / ') + (lkNames.length > 2 ? ' …' : '') + '（点此调整）')
-      : '未锁定技能 · 点此挑几张不再出现';
+      ? (EN_LANG ? (lkNames.length + ' locked · ' + lkNames.slice(0,2).join(' / ') + (lkNames.length > 2 ? ' …' : '') + ' (tap to edit)')
+                 : ('已锁 ' + lkNames.length + ' 张 · ' + lkNames.slice(0,2).join(' / ') + (lkNames.length > 2 ? ' …' : '') + '（点此调整）'))
+      : (EN_LANG ? 'No locks · tap to exclude some cards' : '未锁定技能 · 点此挑几张不再出现');
   }
   var rbtn = document.getElementById('btnReroll');
   /* 390 宽就换行了：原来"重抽强化 · 快捷键 4（剩 2 次）"太长，压成"重抽(键4) · 剩2" */
@@ -5714,7 +5760,8 @@ function startRun(isDaily, dayKey, seed){
   toast(isDaily ? '每日挑战 ' + dayKey : '第 1 波');
   for (var sb=0; sb<6; sb++) spawnEnemy('grunt');
   if (!S.tutorial){
-    hint('第 1 波：拖动屏幕或用 WASD 移动，武器会自动瞄准最近目标', 5600);
+    hint(EN_LANG ? 'Wave 1 · drag to move or use WASD — weapons auto-aim at the nearest target'
+                 : '第 1 波：拖动屏幕或用 WASD 移动，武器会自动瞄准最近目标', 5600);
   }
 }
 
