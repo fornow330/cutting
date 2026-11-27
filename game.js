@@ -4465,7 +4465,9 @@ var toastTimer = null;
 var hintTimer = null;
 
 function toast(text){
-  elToast.textContent = text;
+  /* toast 是 textContent 直接写入，不经过 DOM 翻译；英文模式下这里统一过一次 tx，
+     否则"已锁定 / 跳过强化 / 存档已清除"这类提示会孤零零地闪一行中文 */
+  elToast.textContent = tx(text);
   elToast.classList.add('on');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function(){ elToast.classList.remove('on'); }, 1500);
@@ -4544,7 +4546,9 @@ function renderMenu(){
   var dd = DIFF[S.diff] || DIFF.normal;
   var rsv = document.getElementById('btnContinueRun');
   if (rsv){
-    if (S.checkpoint && S.checkpoint.wave > 1){
+    /* 只看 wave>1 会漏掉"第 1 波内暂停/切语言/关页"的存档点：存档其实在，按钮却不给，
+       用户以为丢了就点开始，新局直接把存档覆盖掉。给 10 秒进度就算有效 */
+    if (S.checkpoint && (S.checkpoint.wave > 1 || (S.checkpoint.time || 0) >= 10)){
       rsv.style.display = '';
       rsv.textContent = (EN_LANG ? 'Continue · W' : '继续 · 第 ') + S.checkpoint.wave + (EN_LANG ? '' : ' 波');
     } else rsv.style.display = 'none';
@@ -4860,6 +4864,9 @@ function renderCodex(){
     ah += cardHTML('ach', a.name, a.desc + (done ? (EN_LANG ? '　Unlocked' : '　已达成') : ''), {done: done});
   }
   document.getElementById('achList').innerHTML = ah;
+  /* 重渲染会把卡全部恢复成可见，但搜索框里的词还在——不重过滤就会出现
+     「框里写着搜索词、下面 70 张全都在」的假象 */
+  if (document.getElementById('codexQ') && document.getElementById('codexQ').value) filterCodex();
 }
 
 function setVolume(v){
@@ -5401,7 +5408,7 @@ function gameOver(){
       adv.style.fontSize = '12px';
     }
     adv.textContent = deathAdvice(G.deathCause || '');
-    if (adv.previousSibling !== dc) dc.parentNode.insertBefore(adv, dc.nextSibling);
+    if (dc.nextSibling !== adv) dc.parentNode.insertBefore(adv, dc.nextSibling);
   } else {
     if (dc) dc.textContent = '';
     if (adv) adv.textContent = '';
@@ -6071,20 +6078,11 @@ applySpeedLabel();
 bind('btnQuit', function(){ goHome(); });
 
 
-bind('btnWipe', function(){
-  if (window.confirm('确定清除全部存档？星核、强化、角色解锁都会丢失。')){
-    try{ localStorage.removeItem(SAVE_KEY); }catch(e){}
-    loadSave(); saveNow(); renderMenu(); renderSettings(); toast('存档已清除');
-  }
-});
-
 document.getElementById('segDiff').addEventListener('click', function(ev){
   var d = ev.target.getAttribute('data-d');
   if (!d) return;
   S.diff = d; saveNow(); renderMenu(); sfx('ui');
 });
-
-document.getElementById('navHost') && document.getElementById('navHost').addEventListener('click', function(){});
 
 var screenRoot = document.getElementById('ui');
 screenRoot.addEventListener('click', function(ev){
@@ -6165,7 +6163,9 @@ screenRoot.addEventListener('click', function(ev){
   var lang = t.getAttribute && t.getAttribute('data-lang');
   if (lang){
     try { localStorage.setItem('gz_lang', lang); } catch(e){}
-    try { if (G && G.state === 'playing') saveCheckpoint(); } catch(e){}
+    /* 切语言要整页刷新：暂停/选卡/商店时也必须先落盘，否则刷新就等于丢这一局。
+       saveCheckpoint 内部会按状态自行判断，这里强制写盘一次 */
+    try { saveCheckpoint(true, true); } catch(e){}
     location.reload();
     return;
   }
