@@ -3395,13 +3395,20 @@ function bulletSprite(r, skin){
 
 /* 精灵缓存：key 里带 ENK（DPR×缩放），窗口尺寸变了自然换一批，读到的永远是 1:1 像素，
    不会出现整屏被放大后糊掉的问题 */
-var _sprC = Object.create(null), _sprN = 0;
+var _sprC = new Map();   /* 精灵缓存：LRU，命中即移到队尾，超 96 张淘汰最久未用的一张 */
 var SPR_PAD = 8;   /* 设备像素留白，给描边外扩 */
 function enemySprite(e, col, eGlow){
-  var key = e.shape + '|' + col + '|' + (e.elite ? 1 : 0) + '|' + (e.boss ? 1 : 0)
+  /* key 挂在怪身上复用：同屏几百只时，每帧每只拼 ~60 字符的 key 是全场景最大的字符串分配源，
+     只有受击闪白（col 变白）、半径变化、换皮肤/改窗口时才需要重拼 */
+  if (e._sk === undefined || e._skR !== e.r || e._skENK !== ENK || e._skCol !== col || e._skShape !== e.shape
+      || e._skE !== (e.elite?1:0) + (e.boss?1:0) || e._skGlow !== eGlow){
+    e._skR = e.r; e._skENK = ENK; e._skCol = col; e._skShape = e.shape; e._skE = (e.elite?1:0) + (e.boss?1:0); e._skGlow = eGlow;
+    e._sk = e.shape + '|' + col + '|' + (e.elite ? 1 : 0) + '|' + (e.boss ? 1 : 0)
           + '|' + (eGlow ? 1 : 0) + '|' + Math.round(e.r) + '|' + ENK.toFixed(2);
-  var got = _sprC[key];
-  if (got) return got;
+  }
+  var key = e._sk;
+  var got = _sprC.get(key);
+  if (got){ _sprC.delete(key); _sprC.set(key, got); return got; }
   var halfD = Math.ceil(e.r * ENK), szD = halfD*2 + SPR_PAD*2;
   if (szD > 512) return null;              /* 极端尺寸就别缓存了，直接走原路径 */
   var cn = document.createElement('canvas');
@@ -3410,9 +3417,9 @@ function enemySprite(e, col, eGlow){
   c2.translate(szD*0.5, szD*0.5);
   c2.scale(ENK, ENK);
   try { paintEnemy(c2, e, col, eGlow); } catch(err){ return null; }
-  if (_sprN > 96){ _sprC = Object.create(null); _sprN = 0; }   /* 换皮肤/改窗口会留下旧 key，兜个上限 */
-  got = _sprC[key] = {c: cn, size: szD};
-  _sprN++;
+  if (_sprC.size >= 96){ _sprC.delete(_sprC.keys().next().value); }   /* 淘汰最久未用，避免整表清空后一轮重绘峰值 */
+  got = {c: cn, size: szD};
+  _sprC.set(key, got);
   return got;
 }
 
@@ -3454,10 +3461,8 @@ function drawEnemy(e){
   if (spr){
     var wsz = spr.size / ENK;
     ctx.drawImage(spr.c, -wsz*0.5, -wsz*0.5, wsz, wsz);
-  } else if (e.mini){
-    paintEnemy(ctx, e, col, eGlow);
   } else {
-    paintEnemy(ctx, e, col, eGlow);
+    paintEnemy(ctx, e, col, eGlow);   /* 尺寸超 512 或首帧绘制失败，退回直接画 */
   }
 
   /* 精英圈和假人文字要按世界坐标轴对齐（稀有，按需回相机矩阵）；
