@@ -1094,8 +1094,10 @@ function distSeg2(px, py, ax, ay, bx, by){
 var PHASE_NAME = ['', '一阶段', '二阶段', '狂暴'];
 
 /* 伤害飘字固定字体：每帧拼字号字符串会持续产生垃圾 */
-var FONT_DMG = '700 13px "Noto Serif SC","Songti SC","STSong",serif';
-var FONT_DMG_BIG = '900 18px "Noto Serif SC","Songti SC","STSong",serif';
+var FFS = '"Noto Serif SC","Songti SC","STSong",serif';
+var FFSANS = '-apple-system,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif';
+var FONT_DMG = '700 13px ' + FFS;
+var FONT_DMG_BIG = '900 18px ' + FFS;
 
 /* 经验晶体：落点就近合并，避免满屏碎晶 */
 var GEM_CAP = 240;
@@ -3423,6 +3425,8 @@ function enemySprite(e, col, eGlow){
   return got;
 }
 
+var _diN = 0;   /* 本帧敌方精灵 drawImage 次数，性能面板用 */
+
 function drawEnemy(e){
   /* 矩阵直接算到位：相机 × 平移 × 旋转，一次 setTransform 取代原本的
      save/translate/rotate/restore 四步 */
@@ -3434,12 +3438,14 @@ function drawEnemy(e){
   else if (e.shape === 'box') ang = e.rot*0.35;
   else if (e.shape === 'dia') ang = e.rot*0.5;
   else ang = 0;
-  /* 低画质/省电：普通怪不旋转。多数怪是圆形/多边形，静止角度几乎看不出，
-     但每只每帧省一对三角函数 + 一个六参数矩阵 */
-  if (ang && !e.boss && S && S.set && (S.set.quality === 'low' || S.set.eco)) ang = 0;
+  /* 低画质/省电：普通怪不旋转 + 受击不换白帧。
+     旋转省一对三角函数；白闪原本会让每只受击怪重拼一个精灵 key、往 LRU 里插一张新图，
+     清屏后这些白图全成垃圾。低画质下直接沿用本色，血条已经够表达受击 */
+  var lowq = !!(S && S.set && (S.set.quality === 'low' || S.set.eco));
+  if (ang && !e.boss && lowq) ang = 0;
   var ca = Math.cos(ang), sa = Math.sin(ang);
   ctx.setTransform(ENK*ca, ENK*sa, -ENK*sa, ENK*ca, ENK*e.x + ENTX, ENK*e.y + ENTY);
-  var col = e.hurt > 0 ? '#ffffff' : e.col;
+  var col = (e.hurt > 0 && !lowq) ? '#ffffff' : e.col;
   /* 普通怪的中心高光只有 2~4px，被描边色压住基本看不见，却要占一条 arc + moveTo；
      精英/首领/迷你体和受击闪白才保留 */
   var eGlow = !!(e.elite || e.boss || e.mini || e.hurt > 0);
@@ -3459,6 +3465,7 @@ function drawEnemy(e){
 
   var spr = enemySprite(e, col, eGlow);
   if (spr){
+    _diN++;
     var wsz = spr.size / ENK;
     ctx.drawImage(spr.c, -wsz*0.5, -wsz*0.5, wsz, wsz);
   } else {
@@ -3478,7 +3485,7 @@ function drawEnemy(e){
     }
     if (e.training){
       ctx.textAlign = 'center';
-      ctx.font = '700 11px "Noto Serif SC","Songti SC",serif';
+      ctx.font = '700 11px ' + FFS;
       ctx.fillStyle = P.rgba(P.amRGB,0.75);
       ctx.fillText('假人 · 无限血', e.x, e.y - e.r - 8);
       ctx.textAlign = 'left';
@@ -3944,7 +3951,7 @@ function drawModGround(camX, camY){
     ctx.strokeStyle = P.rgba(P.cyRGB,0.9); ctx.lineWidth = 2.5;
     ctx.strokeRect(-16,-16,32,32);
     ctx.restore();
-    ctx.font = '700 11px "Noto Serif SC","Songti SC","STSong",serif';
+    ctx.font = '700 11px ' + FFS;
     ctx.textAlign = 'center';
     ctx.fillStyle = ho.out > 0 ? '#cf6a4e' : P.rgba(P.scoutRGB,0.9);
     ctx.fillText(ho.out > 0 ? ('失守倒计时 ' + Math.ceil(5-ho.out) + 's') : '守住发生器', ho.x, ho.y - 30);
@@ -4005,7 +4012,7 @@ function drawGuard(){
   ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(g.x-w2/2, g.y-32, w2, 4);
   ctx.fillStyle = '#a8d0c2'; ctx.fillRect(g.x-w2/2, g.y-32, w2*hpr, 4);
   ctx.fillStyle = 'rgba(190,255,240,0.75)';
-  ctx.font = '700 10px "Noto Serif SC","Songti SC","STSong",serif'; ctx.textAlign = 'center';
+  ctx.font = '700 10px ' + FFS; ctx.textAlign = 'center';
   ctx.fillText('援护', g.x, g.y+40);
   ctx.textAlign = 'left';
 }
@@ -4027,7 +4034,7 @@ function drawHunter(){
   }
   ctx.strokeStyle = '#ff4a3a'; ctx.lineWidth = 5; ctx.stroke();
   ctx.restore();
-  ctx.font = '900 10px "Noto Serif SC","Songti SC","STSong",serif';
+  ctx.font = '900 10px ' + FFS;
   ctx.textAlign = 'center'; ctx.fillStyle = P.red;
   ctx.fillText('追猎者', h.x, h.y - h.r - 10);
 }
@@ -4070,6 +4077,7 @@ function drawFog(){
 
 /* 徽记直接按世界坐标画：满屏掉落物时这里省掉每枚一次的 save/translate/restore */
 function draw(){
+  _diN = 0;
   var camX = G.cam.x, camY = G.cam.y;
   ctx.setTransform(DPR,0,0,DPR,0,0);
   /* bgLayer 是不透明的径向渐变，铺满即遮住底色；只有它不存在时才需要先填底，
@@ -4589,6 +4597,18 @@ function renderBuild(){
     + '</div>';
 }
 
+/* 战绩 / 图鉴 / 成就三页共用一套卡片模板：
+   row   —— 左标题右数值（战绩流水、首领图鉴）
+   codex —— 网格卡（敌人、异变、升级、进化）
+   ach   —— 成就行（含已达成标记） */
+function cardHTML(kind, t, p, o){
+  o = o || {};
+  var h4 = '<h4' + (o.col ? ' style="color:' + o.col + '"' : '') + '>' + t + '</h4><p>' + p + '</p>';
+  if (kind === 'ach') return '<div class="ach' + (o.done ? ' done' : '') + '"><span class="dot"></span><div>' + h4 + '</div></div>';
+  if (kind === 'codex') return '<div class="codexCard"' + (o.data || '') + (o.style ? ' style="' + o.style + '"' : '') + '>' + h4 + '</div>';
+  return '<div class="row"><div class="info">' + h4 + '</div>' + (o.right ? '<div class="price">' + o.right + '</div>' : '') + '</div>';
+}
+
 function renderStats(){
   var gd = document.getElementById('statsGrid');
   if (gd){
@@ -4615,42 +4635,46 @@ function renderStats(){
   }
   var html = '';
   if (!S.runs.length){
-    html = '<div class="row"><div class="info"><h4>还没有记录</h4><p>打一局，这里就会出现你的波次、等级和死因。</p></div></div>';
+    html = cardHTML('row', '还没有记录', '打一局，这里就会出现你的波次、等级和死因。');
   } else {
     for (var i=0;i<S.runs.length;i++){
       var r = S.runs[i];
       var t = new Date(r.ts || 0);
       var mm = ('0'+(t.getMonth()+1)).slice(-2), dd = ('0'+t.getDate()).slice(-2);
       var hh = ('0'+t.getHours()).slice(-2), mi = ('0'+t.getMinutes()).slice(-2);
-      html += '<div class="row"><div class="info"><h4>第 ' + r.w + ' 波 · Lv ' + r.lv + '</h4>'
-        + '<p>' + r.d + (r.cy > 1 ? ' · ' + r.cy + ' 周目' : '') + ' · 击杀 ' + r.k
+      html += cardHTML('row', '第 ' + r.w + ' 波 · Lv ' + r.lv,
+        r.d + (r.cy > 1 ? ' · ' + r.cy + ' 周目' : '') + ' · 击杀 ' + r.k
         + (r.mu ? ' · 异变 ' + r.mu : '') + ' · ' + (r.c || '—')
-        + '　' + (mm+'/'+dd+' '+hh+':'+mi) + '</p></div>'
-        + '<div class="price">+' + r.core + '</div></div>';
+        + '　' + (mm+'/'+dd+' '+hh+':'+mi), {right: '+' + r.core});
     }
   }
   document.getElementById('statsList').innerHTML = html;
 }
 
+var MON_NAME = {grunt:'爬行者', runner:'疾行虫', tank:'重甲兽', shooter:'吐酸者', swarm:'虫群', elite:'精英重甲'};
+
 function renderCodex(){
   var achN = 0;
   for (var ai=0; ai<ACH.length; ai++){ if (S.ach && S.ach[ACH[ai].id]) achN++; }
-  document.getElementById('codexTotal').textContent = '局数 ' + S.stats.runs + ' / 累计击杀 ' + fmt(S.stats.kills)
-    + ' / 成就 ' + achN + '/' + ACH.length;
+  document.getElementById('codexTotal').textContent = EN_LANG
+    ? ('Runs ' + S.stats.runs + ' / Kills ' + fmt(S.stats.kills) + ' / Achievements ' + achN + '/' + ACH.length)
+    : ('局数 ' + S.stats.runs + ' / 累计击杀 ' + fmt(S.stats.kills) + ' / 成就 ' + achN + '/' + ACH.length);
   var html = '<div class="codexGrid">';
   var ekeys = Object.keys(EDEF);
   for (var i=0;i<ekeys.length;i++){
     var d = EDEF[ekeys[i]];
-    var nm = {grunt:'爬行者', runner:'疾行虫', tank:'重甲兽', shooter:'吐酸者', swarm:'虫群', elite:'精英重甲'}[ekeys[i]] || ekeys[i];
+    var nm = EN_LANG ? ((EN_DATA && EN_DATA.edef && EN_DATA.edef[ekeys[i]]) || MON_NAME[ekeys[i]])
+                : (MON_NAME[ekeys[i]] || ekeys[i]);
     var mkv = (S.monKills || {})[ekeys[i]] || 0;
-    html += '<div class="codexCard" data-mon="' + ekeys[i] + '" style="cursor:pointer"><h4 style="color:' + d.col + '">' + nm + '</h4>'
-      + '<p>生命 ' + d.hp + ' · 伤害 ' + d.dmg + ' · 移速 ' + d.spd + (d.shoot ? ' · 远程' : '')
-      + '<br>已击杀 ' + (mkv ? fmt(mkv) : '0') + ' 只</p></div>';
+    var st = EN_LANG ? ('HP ' + d.hp + ' · DMG ' + d.dmg + ' · SPD ' + d.spd + (d.shoot ? ' · ranged' : ''))
+                : ('生命 ' + d.hp + ' · 伤害 ' + d.dmg + ' · 移速 ' + d.spd + (d.shoot ? ' · 远程' : ''));
+    var kl = EN_LANG ? ('Killed ' + (mkv ? fmt(mkv) : '0')) : ('已击杀 ' + (mkv ? fmt(mkv) : '0') + ' 只');
+    html += cardHTML('codex', nm, st + '<br>' + kl,
+      {col: d.col, data: ' data-mon="' + ekeys[i] + '"', style: 'cursor:pointer'});
   }
   for (var k=0;k<BDEF.length;k++){
     var b = BDEF[k];
-    html += '<div class="codexCard"><h4 style="color:' + b.col + '">首领·' + b.name + '</h4>'
-      + '<p>' + b.desc + '</p></div>';
+    html += cardHTML('codex', (EN_LANG ? 'Boss · ' : '首领·') + b.name, b.desc, {col: b.col});
   }
   html += '</div>';
   document.getElementById('codexList').innerHTML = html;
@@ -4663,7 +4687,8 @@ function renderCodex(){
       var key = t.getAttribute('data-mon');
       if (key){
         var d = EDEF[key], at = {grunt:1, runner:3, tank:6, shooter:8, swarm:10, elite:4}[key] || 1;
-        toast('第 ' + at + ' 波起出现 · 生命 ' + d.hp + ' · 伤害 ' + d.dmg + ' · 移速 ' + d.spd);
+        toast(EN_LANG ? ('Appears from wave ' + at + ' · HP ' + d.hp + ' · DMG ' + d.dmg + ' · SPD ' + d.spd)
+                 : ('第 ' + at + ' 波起出现 · 生命 ' + d.hp + ' · 伤害 ' + d.dmg + ' · 移速 ' + d.spd));
       }
     });
   }
@@ -4672,8 +4697,8 @@ function renderCodex(){
   var modA = [], modB = [];
   for (var mi=0; mi<MODS.length; mi++){
     var md = MODS[mi], seen = S.modSeen[md.id] || 0;
-    var card = '<div class="codexCard"><h4 style="color:' + (seen ? P.ink : 'rgba(234,255,248,.5)') + '">' + md.name + '</h4>'
-      + '<p>' + md.tip + (seen ? ('　遭遇 ' + seen + ' 次 · 最高第 ' + (S.modBest[md.id] || 0) + ' 波') : '') + '</p></div>';
+    var card = cardHTML('codex', md.name, md.tip + (seen ? ('　遭遇 ' + seen + ' 次 · 最高第 ' + (S.modBest[md.id] || 0) + ' 波') : ''),
+      {col: seen ? P.ink : 'rgba(234,255,248,.5)'});
     if (seen) modA.push(card); else modB.push(card);
   }
   mh += '<p class="sub" style="font-size:11px;margin:8px 0 0">已遭遇 ' + modA.length + ' / ' + MODS.length + '　·　第 6 波起出现</p>';
@@ -4685,11 +4710,11 @@ function renderCodex(){
   var mbox = document.getElementById('modList');
   if (mbox) mbox.innerHTML = mh;
 
-  var bh = '<div class="row"><div class="info"><h4 style="color:#e8c87c">首领图鉴</h4><p>击杀次数与最快击杀时间</p></div></div>';
+  var bh = cardHTML('row', '首领图鉴', '击杀次数与最快击杀时间', {col: '#e8c87c'});
   for (var bi=0; bi<BDEF.length; bi++){
     var bd = BDEF[bi], rec = S.bossBook[bd.key];
-    bh += '<div class="row"><div class="info"><h4 style="color:' + (rec ? P.ink : 'rgba(234,255,248,.5)') + '">' + bd.name + '</h4>'
-      + '<p>' + (rec ? ('击杀 ' + rec.kills + ' 次 · 最快 ' + rec.best + ' 秒') : '尚未击杀') + '</p></div></div>';
+    bh += cardHTML('row', bd.name, rec ? ('击杀 ' + rec.kills + ' 次 · 最快 ' + rec.best + ' 秒') : '尚未击杀',
+      {col: rec ? P.ink : 'rgba(234,255,248,.5)'});
   }
   var bbox = document.getElementById('bossList');
   if (bbox) bbox.innerHTML = bh;
@@ -4699,9 +4724,9 @@ function renderCodex(){
   var ph = '<p class="sub" style="font-size:11px;margin:8px 0 0">点卡片可锁定：锁定的卡不再出现在升级选项里</p><div class="codexGrid">';
   for (var ui=0; ui<UPG.length; ui++){
     var u = UPG[ui], un = ps[u.id] || 0, lk = !!locks[u.id];
-    ph += '<div class="codexCard" data-lockupg="' + u.id + '" style="cursor:pointer' + (lk ? ';opacity:.55' : '') + '">'
-      + '<h4>' + u.name + (lk ? ' <span style="color:#c8a24e;font-size:10.5px;font-weight:400">已锁</span>' : '') + '</h4>'
-      + '<p>' + (un ? ('选取 ' + un + ' 次') : '未选过') + (u.max ? (' · 上限 ' + u.max) : '') + '</p></div>';
+    ph += cardHTML('codex', u.name + (lk ? ' <span style="color:#c8a24e;font-size:10.5px;font-weight:400">已锁</span>' : ''),
+      (un ? ('选取 ' + un + ' 次') : '未选过') + (u.max ? (' · 上限 ' + u.max) : ''),
+      {data: ' data-lockupg="' + u.id + '"', style: 'cursor:pointer' + (lk ? ';opacity:.55' : '')});
   }
   for (var ej=0; ej<EVO.length; ej++){
     var ev2 = EVO[ej], done2 = (G && G.evoDone) ? !!G.evoDone[ev2.id] : false;
@@ -4711,8 +4736,8 @@ function renderCodex(){
       for (var un2=0; un2<UPG.length; un2++) if (UPG[un2].id === nmn) nmn = UPG[un2].name;
       needTxt.push(nmn + '×' + ev2.req);
     }
-    ph += '<div class="codexCard"' + (done2 ? '' : ' style="opacity:.55"') + '><h4 style="color:#e8c87c">进化 · ' + ev2.name + '</h4>'
-      + '<p>' + needTxt.join(' + ') + '</p></div>';
+    ph += cardHTML('codex', '进化 · ' + ev2.name, needTxt.join(' + '),
+      {col: '#e8c87c', style: done2 ? '' : 'opacity:.55'});
   }
   ph += '</div>';
   var pbox = document.getElementById('pickList');
@@ -4721,8 +4746,7 @@ function renderCodex(){
   var ah = '';
   for (var j=0;j<ACH.length;j++){
     var a = ACH[j], done = !!S.ach[a.id];
-    ah += '<div class="ach' + (done ? ' done' : '') + '"><span class="dot"></span>'
-      + '<div><h4>' + a.name + '</h4><p>' + a.desc + (done ? '　已达成' : '') + '</p></div></div>';
+    ah += cardHTML('ach', a.name, a.desc + (done ? '　已达成' : ''), {done: done});
   }
   document.getElementById('achList').innerHTML = ah;
 }
@@ -4817,17 +4841,22 @@ function renderSettings(){
       + '</div></div>'
     + langRow + '</details>';
 
-  document.getElementById('setList').innerHTML = gView + gAudio + gOp + gOther;
+  /* 性能面板：开关在"画面"组里，读数固定在设置页最底部 */
+  var fpsRow = S.set.perf ? ('<div id="setFpsLine" style="margin-top:10px;padding:8px 11px;border-radius:8px;'
+    + 'background:rgba(0,0,0,.34);font:400 11.5px/1.7 ' + FFSANS + ';color:#9db0a8;letter-spacing:.2px;'
+    + 'word-break:break-all">FPS —</div>') : '';
+  document.getElementById('setList').innerHTML = gView + gAudio + gOp + gOther + fpsRow;
 }
 var fpsTick = setInterval(function(){
   var el = document.getElementById('setFpsLine');
-  if (!el || !el.parentNode || el.parentNode.parentNode.parentNode.style.display === 'none') return;
+  if (!el || !el.offsetParent) return;
   var q = AUTOQ && AUTOQ.lv > 0 ? ('自动降档 L' + AUTOQ.lv) : '满档';
   if (S.set.perf){
     el.textContent = 'FPS ' + Math.round(G && G.fps ? G.fps : 0)
       + ' · 粒子 ' + (G && G.parts ? G.parts.length : 0)
       + ' · 敌人 ' + (G && G.enemies ? G.enemies.length : 0)
       + ' · 弹幕 ' + (G && G.ebullets ? G.ebullets.length : 0)
+      + ' · 精灵 ' + _sprC.size + '/96 · 绘制 ' + _diN
       + ' · ' + q + (G && G.slowNote ? (' · ' + G.slowNote) : '');
   } else {
     el.textContent = 'FPS ' + Math.round(G && G.fps ? G.fps : 0) + ' · 画质 ' + q;
@@ -5765,6 +5794,91 @@ function restartRun(){
   if (wasP){ G.practice = true; G.wave = 19; waveStart(); toast('练习模式：不计星核与战绩'); }
 }
 bind('btnRestart', restartRun);
+function makeShareCard(){
+  if (!G || !G.player) return;
+  var W = 720, H = 1040;
+  var cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  var c = cv.getContext('2d');
+  var p = G.player;
+  c.fillStyle = '#12100c'; c.fillRect(0,0,W,H);
+  var grd = c.createLinearGradient(0,0,W,H);
+  grd.addColorStop(0,'#0e1a1f'); grd.addColorStop(1,'#12100c');
+  c.fillStyle = grd; c.fillRect(0,0,W,H);
+  c.strokeStyle = 'rgba(200,162,78,.12)'; c.lineWidth = 1;
+  for (var gx=40; gx<W; gx+=48){ c.beginPath(); c.moveTo(gx,0); c.lineTo(gx,H); c.stroke(); }
+  for (var gy=40; gy<H; gy+=48){ c.beginPath(); c.moveTo(0,gy); c.lineTo(W,gy); c.stroke(); }
+  c.fillStyle = P.am;
+  c.beginPath(); c.moveTo(90,86); c.lineTo(112,124); c.lineTo(90,152); c.lineTo(68,124); c.closePath(); c.fill();
+  c.font = '600 34px ' + FFSANS;
+  c.fillStyle = P.ink; c.fillText('怪潮幸存者', 132, 118);
+  c.font = '500 22px ' + FFSANS;
+  c.fillStyle = 'rgba(234,223,196,.7)'; c.fillText('本局战报', 132, 150);
+
+  var badges = [];
+  if (S.best && G.wave >= S.best.wave && G.wave > 0) badges.push('历史最高波次');
+  var bcnt = 0;
+  for (var bk in S.bossBook) bcnt += S.bossBook[bk].kills || 0;
+  if (bcnt > 0) badges.push('累计首领击杀 ' + bcnt);
+  if (G.cycle > 1) badges.push('第 ' + G.cycle + ' 周目');
+  if (G.daily) badges.push('每日挑战');
+  var bxx = 56, byy = 186;
+  c.font = '600 18px ' + FFSANS;
+  for (var bi2=0; bi2<badges.length; bi2++){
+    var tw = c.measureText(badges[bi2]).width + 24;
+    c.fillStyle = 'rgba(200,162,78,.12)';
+    c.fillRect(bxx, byy, tw, 30);
+    c.strokeStyle = 'rgba(200,162,78,.35)'; c.lineWidth = 1;
+    c.strokeRect(bxx, byy, tw, 30);
+    c.fillStyle = '#cfe6d9';
+    c.fillText(badges[bi2], bxx + 12, byy + 21);
+    bxx += tw + 10;
+  }
+  var bigs = [[String(G.wave),'波次'],[String(p.level),'等级'],[fmt(G.kills),'击杀'],[String(Math.floor(G.time))+'s','存活']];
+  for (var i=0;i<4;i++){
+    var bx = 56 + i*164, by = 240;
+    c.fillStyle = 'rgba(200,162,78,.06)'; c.fillRect(bx,by,148,132);
+    c.font = '700 46px ' + FFSANS; c.fillStyle = P.am;
+    c.fillText(bigs[i][0], bx+18, by+74);
+    c.font = '500 20px ' + FFSANS; c.fillStyle = 'rgba(234,255,248,.6)';
+    c.fillText(bigs[i][1], bx+18, by+108);
+  }
+  var lines = [];
+  lines.push('难度 · ' + ((G.diff && G.diff.name) || '普通') + ((G.cycle||1) > 1 ? ' · 第' + G.cycle + '周目' : ''));
+  lines.push('角色 · ' + ((CHARS[S.char] && CHARS[S.char].name) || '先锋'));
+  lines.push('死因 · ' + (G.deathCause || '—'));
+  var evos = [], schs = [];
+  for (var eid in G.evoDone) if (G.evoDone[eid]) for (var j=0;j<EVO.length;j++) if (EVO[j].id === eid) evos.push(EVO[j].name);
+  for (var sk in G.schoolDone) if (G.schoolDone[sk] && SCHOOLS[sk]) schs.push(SCHOOLS[sk].title);
+  if (evos.length) lines.push('进化 · ' + evos.join(' / '));
+  if (schs.length) lines.push('质变 · ' + schs.join(' / '));
+  if (G.mods.length) lines.push('异变 · ' + G.mods.length + ' 条');
+  c.font = '500 24px ' + FFSANS;
+  for (var li=0; li<lines.length; li++){
+    c.fillStyle = li === 0 ? 'rgba(234,255,248,.88)' : 'rgba(234,223,196,.6)';
+    c.fillText(lines[li], 58, 440 + li*46);
+  }
+  c.strokeStyle = 'rgba(200,162,78,.18)'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(56, 730); c.lineTo(W-56, 730); c.stroke();
+  c.font = '500 22px ' + FFSANS; c.fillStyle = 'rgba(234,255,248,.5)';
+  c.fillText('星核 +' + (G.lastCore || 0), 58, 780);
+  var d = new Date();
+  c.fillText((d.getFullYear()) + '.' + ('0'+(d.getMonth()+1)).slice(-2) + '.' + ('0'+d.getDate()).slice(-2), 58, 822);
+  c.font = '700 26px ' + FFSANS; c.fillStyle = P.am;
+  c.fillText('fornow330.github.io/cutting', 58, 940);
+  c.font = '500 20px ' + FFSANS; c.fillStyle = 'rgba(234,223,196,.45)';
+  c.fillText('割草 · 塔防 · 无限波次', 58, 978);
+
+  var url = cv.toDataURL('image/png');
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(4,8,10,.92);z-index:99;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:18px';
+  ov.innerHTML = '<img src="' + url + '" style="max-width:92%;max-height:74%;border-radius:10px;border:1px solid rgba(200,162,78,.2)">'
+    + '<a download="怪潮战绩.png" href="' + url + '" style="display:inline-block;padding:12px 22px;border-radius:8px;background:#c8a24e;color:#1c1710;font:600 15px sans-serif;text-decoration:none">保存战绩卡</a>'
+    + '<button style="padding:10px 18px;border-radius:8px;border:1px solid rgba(234,223,196,.3);background:transparent;color:#eadfc4;font:500 14px sans-serif">关闭</button>';
+  ov.querySelector('button').addEventListener('click', function(){ ov.remove(); });
+  document.body.appendChild(ov);
+}
+bind('btnShareCard', function(){ makeShareCard(); });
 bind('btnCopyRun', function(){
   var g = G; if (!g || !g.player) return;
   var dl = (DIFF[g.diff && g.diff.key] || DIFF.normal);
