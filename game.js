@@ -4804,7 +4804,7 @@ function renderSettings(){
       + '<button class="btn ghost" style="padding:6px 10px;font-size:12px" data-keys="1">' + (EN?'Switch':'切换') + '</button></div>'
     + '</details>';
 
-  var gOther = '<details class="setgrp"><summary>' + (EN?'其他':'其他') + '</summary>'
+  var gOther = '<details class="setgrp" open><summary>' + (EN?'其他':'其他') + '</summary>'
     + rowSwitch('autoPause', EN?'Auto Pause':'自动暂停',
         EN ? 'Pause when the window loses focus or goes background' : '切到别的窗口或切后台时自动暂停',
         S.set.autoPause !== false)
@@ -4813,6 +4813,7 @@ function renderSettings(){
       + '<div style="display:flex;gap:6px">'
       + '<button class="btn ghost" style="padding:6px 10px;font-size:12px" data-save-exp="1">' + (EN?'Export':'导出') + '</button>'
       + '<button class="btn ghost" style="padding:6px 10px;font-size:12px" data-save-imp="1">' + (EN?'Import':'导入') + '</button>'
+      + '<button class="btn ghost" style="padding:6px 10px;font-size:12px;opacity:.75" data-save-wipe="1">' + (EN?'Clear':'清除') + '</button>'
       + '</div></div>'
     + langRow + '</details>';
 
@@ -5801,118 +5802,6 @@ bind('btnSpeed', function(){ cycleSpeed(1); });
 applySpeedLabel();
 bind('btnQuit', function(){ goHome(); });
 
-function encSave(){
-  var s = JSON.stringify(S);
-  return btoa(unescape(encodeURIComponent(s)));
-}
-
-bind('btnExp', function(){
-  var code = encSave();
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(code).then(function(){ toast('存档码已复制到剪贴板'); }, function(){ window.prompt('复制下面的存档码', code); });
-  } else {
-    window.prompt('复制下面的存档码', code);
-  }
-});
-
-bind('btnImp', function(){
-  var code = window.prompt('粘贴存档码（导入会覆盖当前进度）');
-  if (!code) return;
-  try {
-    var txt = decodeURIComponent(escape(atob(code.trim())));
-    var d = JSON.parse(txt);
-    if (!d || typeof d.core !== 'number') throw new Error('bad');
-    localStorage.setItem(SAVE_KEY, txt);
-    loadSave(); saveNow(); renderMenu(); renderSettings(); toast('存档已导入');
-  } catch(e){ toast('存档码无效'); }
-});
-
-bind('btnShareCard', function(){ makeShareCard(); });
-
-function makeShareCard(){
-  if (!G || !G.player) return;
-  var W = 720, H = 1040;
-  var cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
-  var c = cv.getContext('2d');
-  var p = G.player;
-  c.fillStyle = '#12100c'; c.fillRect(0,0,W,H);
-  var grd = c.createLinearGradient(0,0,W,H);
-  grd.addColorStop(0,'#0e1a1f'); grd.addColorStop(1,'#12100c');
-  c.fillStyle = grd; c.fillRect(0,0,W,H);
-  c.strokeStyle = 'rgba(200,162,78,.12)'; c.lineWidth = 1;
-  for (var gx=40; gx<W; gx+=48){ c.beginPath(); c.moveTo(gx,0); c.lineTo(gx,H); c.stroke(); }
-  for (var gy=40; gy<H; gy+=48){ c.beginPath(); c.moveTo(0,gy); c.lineTo(W,gy); c.stroke(); }
-  c.fillStyle = P.am;
-  c.beginPath(); c.moveTo(90,86); c.lineTo(112,124); c.lineTo(90,152); c.lineTo(68,124); c.closePath(); c.fill();
-  c.font = '600 34px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
-  c.fillStyle = P.ink; c.fillText('怪潮幸存者', 132, 118);
-  c.font = '500 22px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
-  c.fillStyle = 'rgba(234,223,196,.7)'; c.fillText('本局战报', 132, 150);
-
-  var badges = [];
-  if (S.best && G.wave >= S.best.wave && G.wave > 0) badges.push('历史最高波次');
-  var bcnt = 0;
-  for (var bk in S.bossBook) bcnt += S.bossBook[bk].kills || 0;
-  if (bcnt > 0) badges.push('累计首领击杀 ' + bcnt);
-  if (G.cycle > 1) badges.push('第 ' + G.cycle + ' 周目');
-  if (G.daily) badges.push('每日挑战');
-  var bxx = 56, byy = 186;
-  c.font = '600 18px -apple-system,"PingFang SC",sans-serif';
-  for (var bi2=0; bi2<badges.length; bi2++){
-    var tw = c.measureText(badges[bi2]).width + 24;
-    c.fillStyle = 'rgba(200,162,78,.12)';
-    c.fillRect(bxx, byy, tw, 30);
-    c.strokeStyle = 'rgba(200,162,78,.35)'; c.lineWidth = 1;
-    c.strokeRect(bxx, byy, tw, 30);
-    c.fillStyle = '#cfe6d9';
-    c.fillText(badges[bi2], bxx + 12, byy + 21);
-    bxx += tw + 10;
-  }
-  var bigs = [[String(G.wave),'波次'],[String(p.level),'等级'],[fmt(G.kills),'击杀'],[String(Math.floor(G.time))+'s','存活']];
-  for (var i=0;i<4;i++){
-    var bx = 56 + i*164, by = 240;
-    c.fillStyle = 'rgba(200,162,78,.06)'; c.fillRect(bx,by,148,132);
-    c.font = '700 46px -apple-system,"PingFang SC",sans-serif'; c.fillStyle = P.am;
-    c.fillText(bigs[i][0], bx+18, by+74);
-    c.font = '500 20px -apple-system,"PingFang SC",sans-serif'; c.fillStyle = 'rgba(234,255,248,.6)';
-    c.fillText(bigs[i][1], bx+18, by+108);
-  }
-  var lines = [];
-  lines.push('难度 · ' + ((G.diff && G.diff.name) || '普通') + ((G.cycle||1) > 1 ? ' · 第' + G.cycle + '周目' : ''));
-  lines.push('角色 · ' + ((CHARS[S.char] && CHARS[S.char].name) || '先锋'));
-  lines.push('死因 · ' + (G.deathCause || '—'));
-  var evos = [], schs = [];
-  for (var eid in G.evoDone) if (G.evoDone[eid]) for (var j=0;j<EVO.length;j++) if (EVO[j].id === eid) evos.push(EVO[j].name);
-  for (var sk in G.schoolDone) if (G.schoolDone[sk] && SCHOOLS[sk]) schs.push(SCHOOLS[sk].title);
-  if (evos.length) lines.push('进化 · ' + evos.join(' / '));
-  if (schs.length) lines.push('质变 · ' + schs.join(' / '));
-  if (G.mods.length) lines.push('异变 · ' + G.mods.length + ' 条');
-  c.font = '500 24px -apple-system,"PingFang SC",sans-serif';
-  for (var li=0; li<lines.length; li++){
-    c.fillStyle = li === 0 ? 'rgba(234,255,248,.88)' : 'rgba(234,223,196,.6)';
-    c.fillText(lines[li], 58, 440 + li*46);
-  }
-  c.strokeStyle = 'rgba(200,162,78,.18)'; c.lineWidth = 1;
-  c.beginPath(); c.moveTo(56, 730); c.lineTo(W-56, 730); c.stroke();
-  c.font = '500 22px -apple-system,"PingFang SC",sans-serif'; c.fillStyle = 'rgba(234,255,248,.5)';
-  c.fillText('星核 +' + (G.lastCore || 0), 58, 780);
-  var d = new Date();
-  c.fillText((d.getFullYear()) + '.' + ('0'+(d.getMonth()+1)).slice(-2) + '.' + ('0'+d.getDate()).slice(-2), 58, 822);
-  c.font = '700 26px -apple-system,"PingFang SC",sans-serif'; c.fillStyle = P.am;
-  c.fillText('fornow330.github.io/cutting', 58, 940);
-  c.font = '500 20px -apple-system,"PingFang SC",sans-serif'; c.fillStyle = 'rgba(234,223,196,.45)';
-  c.fillText('割草 · 塔防 · 无限波次', 58, 978);
-
-  var url = cv.toDataURL('image/png');
-  var ov = document.createElement('div');
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(4,8,10,.92);z-index:99;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:18px';
-  ov.innerHTML = '<img src="' + url + '" style="max-width:92%;max-height:74%;border-radius:10px;border:1px solid rgba(200,162,78,.2)">'
-    + '<a download="怪潮战绩.png" href="' + url + '" style="display:inline-block;padding:12px 22px;border-radius:8px;background:#c8a24e;color:#1c1710;font:600 15px sans-serif;text-decoration:none">保存战绩卡</a>'
-    + '<button style="padding:10px 18px;border-radius:8px;border:1px solid rgba(234,223,196,.3);background:transparent;color:#eadfc4;font:500 14px sans-serif">关闭</button>';
-  ov.querySelector('button').addEventListener('click', function(){ ov.remove(); });
-  document.body.appendChild(ov);
-}
 
 bind('btnWipe', function(){
   if (window.confirm('确定清除全部存档？星核、强化、角色解锁都会丢失。')){
@@ -6035,6 +5924,13 @@ screenRoot.addEventListener('click', function(ev){
       saveNow(); applySkin(); renderMenu(); renderSettings(); renderCodex();
       toast('存档已导入 · 缺失字段已补默认');
     } catch(e){ toast('存档格式不对或版本过旧'); }
+    return;
+  }
+  if (t.getAttribute && t.getAttribute('data-save-wipe')){
+    if (window.confirm('确定清除全部存档？星核、强化、角色解锁都会丢失。')){
+      try{ localStorage.removeItem(SAVE_KEY); }catch(e){}
+      loadSave(); saveNow(); applySkin(); renderMenu(); renderSettings(); toast('存档已清除');
+    }
     return;
   }
   var lku = t.getAttribute && t.getAttribute('data-lockupg');
