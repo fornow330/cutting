@@ -617,7 +617,8 @@ function tone(freq, dur, type, vol, music, hit){
   }catch(e){}
 }
 
-var _sfxKillT = 0;   /* 连杀击杀音效的节流时间戳（必须声明，否则严格读未声明变量直接抛错） */
+var _sfxKillT = 0, _sfxCritT = 0, _sfxHurtT = 0, _sfxCoinT = 0;
+/* 四个节流时间戳都必须在严格模式下显式声明，否则读未声明变量直接抛 ReferenceError（曾让重抽整条链路中断） */
 function sfx(kind){
   if (!S.set.sfx) return;
   if (G && G.speed >= 5 && (kind === 'shoot' || kind === 'kill')) return;
@@ -5193,10 +5194,10 @@ function renderPicks(picks){
   }
   var rbtn = document.getElementById('btnReroll');
   /* 390 宽就换行了：原来"重抽强化 · 快捷键 4（剩 2 次）"太长，压成"重抽(键4) · 剩2" */
-  rbtn.textContent = '重抽(键4) · 剩 ' + G.rerolls;
+  rbtn.textContent = EN_LANG ? ('Reroll (key 4) · ' + G.rerolls + ' left') : ('重抽(键4) · 剩 ' + G.rerolls);
   rbtn.disabled = G.rerolls <= 0;
   var sbtn = document.getElementById('btnSkipPick');
-  if (sbtn) sbtn.textContent = '跳过 · +' + skipCoins() + ' 金币';
+  if (sbtn) sbtn.textContent = EN_LANG ? ('Skip · +' + skipCoins() + ' Cores') : ('跳过 · +' + skipCoins() + ' 金币');
 }
 
 /* 跳过补偿随波次涨：早期少跳，后期卡池脏了跳一次不亏 */
@@ -5212,7 +5213,7 @@ function skipPicks(){
   pendingPicks = [];
   G.state = 'playing';
   showScreen(null);
-  toast('跳过强化 · +' + c + ' 金币');
+  toast(EN_LANG ? ('Upgrade skipped · +' + c + ' Cores') : ('跳过强化 · +' + c + ' 金币'));
   sfx('coin');
 }
 
